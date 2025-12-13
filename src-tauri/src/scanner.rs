@@ -170,13 +170,11 @@ fn get_deep_stats(path: &std::path::Path) -> (u64, u64) {
     let mut size = 0;
     let mut count = 0;
     
-    // jwalk for deep structure stats
-    for entry in WalkDir::new(path).skip_hidden(false) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() {
-                size += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                count += 1;
-            }
+    // Use synchronous walkdir for consistency
+    for entry in walkdir::WalkDir::new(path).min_depth(1).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            count += 1;
         }
     }
     
