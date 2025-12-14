@@ -21,7 +21,8 @@ pub fn run() {
         commands::reveal_in_explorer,
         commands::open_file,
         commands::delete_item,
-        commands::get_drives
+        commands::get_drives,
+        commands::cancel_scan
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

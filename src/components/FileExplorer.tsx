@@ -1,6 +1,6 @@
 'use client';
 
-import * as React from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     makeStyles,
     shorthands,
@@ -23,6 +23,8 @@ import {
     MenuList,
     MenuItem,
     MenuPopover,
+    Spinner,
+    Caption1,
 } from '@fluentui/react-components';
 import {
     FolderRegular,
@@ -38,9 +40,11 @@ import {
     HardDriveRegular,
     DataPieRegular,
     InfoRegular,
+    DismissRegular,
 } from '@fluentui/react-icons';
 import { DiskUsageChart } from './DiskUsageChart';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { FileNode } from '@/types';
 
 const useStyles = makeStyles({
@@ -85,6 +89,62 @@ interface ExplorerState {
     error: string | null;
 }
 
+interface ScanProgressPayload {
+    path: string;
+    count: number;
+    size: number;
+}
+
+const ScanProgressBanner = ({ progress, onCancel, speed }: {
+    progress: ScanProgressPayload;
+    onCancel: () => void;
+    speed: number;
+}) => {
+    const formatSize = (bytes: number): string => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    return (
+        <div style={{
+            position: 'absolute',
+            top: '80px', // Below toolbar
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '450px',
+            backgroundColor: 'var(--colorNeutralBackground1)',
+            borderRadius: '8px',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.14)',
+            padding: '16px',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Spinner size="tiny" />
+                <Text weight="medium" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    Scanning: {progress.path}
+                </Text>
+            </div>
+
+            <ProgressBar value={undefined} /> {/* Indeterminate for now since we don't know total */}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Caption1 style={{ color: 'var(--colorNeutralForeground2)' }}>
+                    {progress.count.toLocaleString()} items • {formatSize(progress.size)} • {Math.round(speed)} items/sec
+                </Caption1>
+                <Button appearance="subtle" icon={<DismissRegular />} onClick={onCancel} size="small">
+                    Cancel
+                </Button>
+            </div>
+        </div>
+    );
+};
+
 export const FileExplorer = () => {
     const styles = useStyles();
     const [state, setState] = React.useState<ExplorerState>({
@@ -99,6 +159,12 @@ export const FileExplorer = () => {
     const [inputPath, setInputPath] = React.useState(state.path);
     const [selectedItems, setSelectedItems] = React.useState<Set<SelectionItemId>>(new Set());
     const [showChart, setShowChart] = React.useState(false);
+
+    // Scan Progress State
+    const [scanProgress, setScanProgress] = useState<ScanProgressPayload | null>(null);
+    const [isScanning, setIsScanning] = useState(false);
+    const [scanSpeed, setScanSpeed] = useState(0);
+    const lastProgressRef = useRef<{ count: number, time: number } | null>(null);
 
     // Context Menu State
     const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
@@ -164,6 +230,11 @@ export const FileExplorer = () => {
 
     const fetchData = async (path: string, forceRefresh: boolean = false) => {
         setState(prev => ({ ...prev, loading: true, error: null }));
+        setIsScanning(true);
+        setScanProgress(null);
+        setScanSpeed(0);
+        lastProgressRef.current = null;
+
         try {
             if (path === '') {
                 // Fetch Drives
@@ -195,6 +266,9 @@ export const FileExplorer = () => {
             setSelectedItems(new Set()); // Clear selection on navigate
         } catch (e: unknown) {
             setState(prev => ({ ...prev, loading: false, error: String(e) }));
+        } finally {
+            setIsScanning(false);
+            setScanProgress(null);
         }
     };
 
@@ -208,6 +282,29 @@ export const FileExplorer = () => {
             loading: true
         }));
         fetchData(initialPath);
+
+        const unlistenPromise = listen<ScanProgressPayload>('scan-progress', (event) => {
+            const now = Date.now();
+            const currentCount = event.payload.count;
+
+            if (lastProgressRef.current) {
+                const deltaCount = currentCount - lastProgressRef.current.count;
+                const deltaTime = (now - lastProgressRef.current.time) / 1000;
+                if (deltaTime > 0.5) { // Update speed every 500ms approx
+                    setScanSpeed(deltaCount / deltaTime);
+                    lastProgressRef.current = { count: currentCount, time: now };
+                }
+            } else {
+                lastProgressRef.current = { count: currentCount, time: now };
+            }
+
+            setScanProgress(event.payload);
+            setIsScanning(true);
+        });
+
+        return () => {
+            unlistenPromise.then(unlisten => unlisten());
+        };
     }, []);
 
     const handleNavigate = (newPath: string) => {
@@ -298,6 +395,13 @@ export const FileExplorer = () => {
         alert(details);
     };
 
+    const handleCancelScan = async () => {
+        await invoke('cancel_scan');
+        setIsScanning(false);
+        setScanProgress(null);
+        // The fetchData's finally block will also reset scanning state once the backend command completes/errors out.
+    };
+
     const items = state.data?.children || [];
 
     return (
@@ -346,8 +450,17 @@ export const FileExplorer = () => {
                 </div>
             </div>
 
-            {state.loading && <ProgressBar />}
+            {state.loading && !isScanning && <ProgressBar />}
             {state.error && <Text style={{ color: 'red' }}>{state.error}</Text>}
+
+            {/* SCAN PROGRESS BANNER */}
+            {isScanning && scanProgress && (
+                <ScanProgressBanner
+                    progress={scanProgress}
+                    speed={scanSpeed}
+                    onCancel={handleCancelScan}
+                />
+            )}
 
             {/* Main Content Area (Grid + Chart) */}
             <div style={{ display: 'flex', flexGrow: 1, overflow: 'hidden', gap: '10px' }}>

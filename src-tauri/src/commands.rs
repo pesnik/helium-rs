@@ -1,8 +1,9 @@
-use tauri::command;
-use crate::scanner::{scan_directory, FileNode};
+use tauri::{command, AppHandle, Emitter};
+use crate::scanner::{scan_directory, FileNode, ScanStats};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::SystemTime;
+use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{SystemTime, Duration};
 use lazy_static::lazy_static;
 use std::path::Path;
 use sysinfo::Disks;
@@ -12,32 +13,23 @@ struct CacheEntry {
     timestamp: SystemTime,
 }
 
+// Global state to manage cancellation
+struct ScanState {
+    cancel_token: Arc<AtomicBool>,
+}
+
 lazy_static! {
     static ref SCAN_CACHE: Mutex<HashMap<String, CacheEntry>> = Mutex::new(HashMap::new());
+    static ref SCAN_STATE: RwLock<ScanState> = RwLock::new(ScanState { 
+        cancel_token: Arc::new(AtomicBool::new(false)) 
+    });
 }
 
 const CACHE_TTL: u64 = 60 * 60; 
 
 fn normalize_path(path: &str) -> String {
-    // Basic normalization: use forward slashes for internal key comparison if needed?
-    // Actually, OS specifics matter.
-    // On Windows C:\Users and C:/Users should be same.
-    // Let's use std::path::Path to canonicalize? Canonicalize resolves symlinks which might be slow or unwanted.
-    // Let's just standardise separators.
-    
-    // Use the string representation provided by OS but maybe trim usage of mixed slashes?
-    // For cache keys, exact string match is used.
-    // If the frontend sends standardized paths, we are good.
-    // The previous app used `str(Path(p))` which standardizes to OS native.
-    // Let's rely on that or just use the input string if we trust frontend.
-    // But frontend sends what it gets from backend.
-    
-    // Issue: "C:\" vs "C:" ?
-    // Let's strip trailing slash unless root.
     let mut s = path.to_string();
     if s.len() > 1 && (s.ends_with('/') || s.ends_with('\\')) {
-         // check if it's root (e.g. C:\ or /)
-         // On windows C:\ is root.
          let is_root = s.len() == 3 && s.chars().nth(1) == Some(':');
          if !is_root && s != "/" {
              s.pop();
@@ -46,18 +38,31 @@ fn normalize_path(path: &str) -> String {
     s
 }
 
-#[command]
-pub async fn scan_dir(path: String) -> Result<FileNode, String> {
-    scan_dir_internal(path, false).await
+#[derive(Clone, serde::Serialize)]
+struct ScanProgress {
+    path: String, // Just the root path being scanned
+    count: u64,
+    size: u64,
 }
 
 #[command]
-pub async fn refresh_scan(path: String) -> Result<FileNode, String> {
-    scan_dir_internal(path, true).await
+pub async fn scan_dir(app: AppHandle, path: String) -> Result<FileNode, String> {
+    scan_dir_internal(app, path, false).await
 }
 
-async fn scan_dir_internal(path: String, force_refresh: bool) -> Result<FileNode, String> {
-    // Normalize path for cache key
+#[command]
+pub async fn refresh_scan(app: AppHandle, path: String) -> Result<FileNode, String> {
+    scan_dir_internal(app, path, true).await
+}
+
+#[command]
+pub fn cancel_scan() {
+    if let Ok(state) = SCAN_STATE.read() {
+        state.cancel_token.store(true, Ordering::Relaxed);
+    }
+}
+
+async fn scan_dir_internal(app: AppHandle, path: String, force_refresh: bool) -> Result<FileNode, String> {
     let key = normalize_path(&path);
 
     // Check cache
@@ -72,32 +77,65 @@ async fn scan_dir_internal(path: String, force_refresh: bool) -> Result<FileNode
         }
     }
 
+    // Reset cancellation
+    let cancel_token = Arc::new(AtomicBool::new(false));
+    if let Ok(mut state) = SCAN_STATE.write() {
+        state.cancel_token = cancel_token.clone();
+    }
+
+    // Stats for progress
+    let stats = Arc::new(ScanStats {
+        scanned_files: AtomicU64::new(0),
+        total_size: AtomicU64::new(0),
+    });
+
+    let is_done = Arc::new(AtomicBool::new(false));
+
+    // Spawn progress emitter
+    let stats_clone = stats.clone();
+    let app_handle = app.clone();
+    let path_report = path.clone();
+    let cancel_clone = cancel_token.clone();
+    let is_done_clone = is_done.clone();
+    
+    tauri::async_runtime::spawn(async move {
+        // Emit every 100ms
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if cancel_clone.load(Ordering::Relaxed) || is_done_clone.load(Ordering::Relaxed) {
+                break;
+            }
+            
+            let count = stats_clone.scanned_files.load(Ordering::Relaxed);
+            let size = stats_clone.total_size.load(Ordering::Relaxed);
+            
+            let payload = ScanProgress {
+                 path: path_report.clone(),
+                 count,
+                 size
+            };
+            let _ = app_handle.emit("scan-progress", payload);
+        }
+    });
+
     let path_clone = path.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        scan_directory(&path_clone)
+        scan_directory(&path_clone, Some(stats), Some(cancel_token))
     }).await.map_err(|e| e.to_string())??;
 
+    is_done.store(true, Ordering::Relaxed);
+    
     // Update cache
     let mut cache = SCAN_CACHE.lock().map_err(|e| e.to_string())?;
     let now = SystemTime::now();
     
-    // Cache the main result
     cache.insert(key.clone(), CacheEntry {
         node: result.clone(),
         timestamp: now,
     });
     
-    // CACHE LOOKAHEAD: Cache the children nodes too!
     if let Some(children) = &result.children {
         for child in children {
-            // We need to clone, but we should probably strip *their* children if we went deeper?
-            // Currently scanner goes 2 levels deep. 
-            // Level 0: Root (A)
-            // Level 1: Child (B) -> Has children details (D, E) populated.
-            // Level 2: Grandchild (D) -> children=None.
-            
-            // So 'child' here is 'B'. It has .children populated.
-            // We can cache 'B' directly!
             let child_key = normalize_path(&child.path);
             cache.insert(child_key, CacheEntry {
                 node: child.clone(),
