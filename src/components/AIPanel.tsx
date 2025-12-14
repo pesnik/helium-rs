@@ -203,6 +203,29 @@ export const AIPanel = ({
         setMessages((prev) => [...prev, userMessage]);
         setIsLoading(true);
 
+        // Check if this is embedded AI (Candle) - might need to download
+        const selectedModel = availableModels.find((m) => m.id === selectedModelId);
+        const isEmbeddedAI = selectedModel?.provider === ModelProvider.Candle;
+
+        // Add a download status message for embedded AI
+        let downloadMsgId = '';
+        if (isEmbeddedAI) {
+            downloadMsgId = `msg-${Date.now()}-download`;
+
+            // Check if model is available (already downloaded)
+            const isModelDownloaded = selectedModel?.isAvailable;
+
+            const downloadMessage: ChatMessage = {
+                id: downloadMsgId,
+                role: MessageRole.Assistant,
+                content: isModelDownloaded
+                    ? '⚙️ Loading embedded AI model...'
+                    : '📥 Downloading embedded AI model (Phi-2, ~1.5GB). This will take 3-5 minutes on first use...',
+                timestamp: Date.now(),
+            };
+            setMessages((prev) => [...prev, downloadMessage]);
+        }
+
         try {
             const selectedModel = availableModels.find((m) => m.id === selectedModelId);
             if (!selectedModel) {
@@ -214,18 +237,7 @@ export const AIPanel = ({
             const isStreaming = true;
             let assistantMsgId = '';
 
-            if (isStreaming) {
-                // Create placeholder for assistant response ONLY if streaming
-                assistantMsgId = `msg-${Date.now()}-ai`;
-                const assistantMessage: ChatMessage = {
-                    id: assistantMsgId,
-                    role: MessageRole.Assistant,
-                    content: '',
-                    timestamp: Date.now(),
-                };
-                setMessages((prev) => [...prev, assistantMessage]);
-            }
-
+            // Don't create placeholder yet - wait for first chunk to avoid empty bubble
             let streamedContent = '';
 
             const response = await runInference({
@@ -235,6 +247,26 @@ export const AIPanel = ({
                 fsContext,
                 mode,
             }, isStreaming ? (chunk) => {
+                // Remove download message once we start getting chunks
+                if (downloadMsgId) {
+                    setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
+                    downloadMsgId = ''; // Clear it so we only remove once
+                }
+
+                // Create placeholder on first chunk to avoid empty bubble
+                if (!assistantMsgId) {
+                    assistantMsgId = `msg-${Date.now()}-ai`;
+                    const assistantMessage: ChatMessage = {
+                        id: assistantMsgId,
+                        role: MessageRole.Assistant,
+                        content: chunk,
+                        timestamp: Date.now(),
+                    };
+                    streamedContent = chunk;
+                    setMessages((prev) => [...prev, assistantMessage]);
+                    return;
+                }
+
                 // Handle streaming chunk
                 streamedContent += chunk;
                 setMessages((prev) => prev.map(msg =>
@@ -245,6 +277,10 @@ export const AIPanel = ({
             } : undefined);
 
             if (isStreaming) {
+                // Remove download message if still present
+                if (downloadMsgId) {
+                    setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
+                }
                 // Final update for streaming (ensure exact final state)
                 setMessages((prev) => prev.map(msg =>
                     msg.id === assistantMsgId
@@ -257,6 +293,11 @@ export const AIPanel = ({
             }
         } catch (error: any) {
             console.error('Inference failed:', error);
+
+            // Remove download message if present
+            if (downloadMsgId) {
+                setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
+            }
 
             const errorMessage = createMessage(
                 MessageRole.Assistant,

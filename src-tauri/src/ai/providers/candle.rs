@@ -16,22 +16,13 @@ use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 use lazy_static::lazy_static;
 
-const MODEL_REPO: &str = "Qwen/Qwen2.5-Coder-0.5B-Instruct";
+const MODEL_REPO: &str = "microsoft/phi-2";
 const TOKENIZER_FILE: &str = "tokenizer.json";
-const MODEL_FILE: &str = "model.safetensors";
+const MODEL_FILE: &str = "model-00001-of-00002.safetensors";
+const MODEL_FILE_2: &str = "model-00002-of-00002.safetensors";
 const CONFIG_FILE: &str = "config.json";
 
-// Shared model state
-struct ModelContext {
-    model: Mutex<QwenModel>,
-    tokenizer: Tokenizer,
-    device: Device,
-    config: QwenConfig,
-}
 
-lazy_static! {
-    static ref MODEL_CACHE: Mutex<Option<Arc<ModelContext>>> = Mutex::new(None);
-}
 
 #[derive(Clone, serde::Serialize)]
 pub struct DownloadStatus {
@@ -40,13 +31,14 @@ pub struct DownloadStatus {
 }
 
 /// Download the model if needed and return paths
-async fn ensure_model_files(sender: Option<mpsc::Sender<DownloadStatus>>) -> Result<(PathBuf, PathBuf, PathBuf), AIError> {
+async fn ensure_model_files(sender: Option<mpsc::Sender<DownloadStatus>>) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), AIError> {
     let api = Api::new().map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
         message: format!("Failed to initialize HF API: {}", e),
         details: None, suggested_actions: None
     })?;
     
+    println!("[Candle] Initializing HuggingFace API for model: {}", MODEL_REPO);
     let repo = api.repo(Repo::new(MODEL_REPO.to_string(), RepoType::Model));
 
     let report = |msg: &str, prog: f32| {
@@ -59,6 +51,7 @@ async fn ensure_model_files(sender: Option<mpsc::Sender<DownloadStatus>>) -> Res
     };
 
     report("Checking/Downloading tokenizer...", 0.1);
+    println!("[Candle] Fetching tokenizer: {}", TOKENIZER_FILE);
     let tokenizer_path = repo.get(TOKENIZER_FILE).await.map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
         message: format!("Failed to fetch tokenizer: {}", e),
@@ -66,21 +59,31 @@ async fn ensure_model_files(sender: Option<mpsc::Sender<DownloadStatus>>) -> Res
     })?;
     
     report("Checking/Downloading config...", 0.2);
+    println!("[Candle] Fetching config: {}", CONFIG_FILE);
     let config_path = repo.get(CONFIG_FILE).await.map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
         message: format!("Failed to fetch config: {}", e),
         details: None, suggested_actions: None
     })?;
     
-    report("Checking/Downloading model weights (0.5B params)...", 0.3);
+    report("Downloading model weights part 1/2 (2.7B params)...", 0.3);
+    println!("[Candle] Fetching model part 1: {} (this may take several minutes for first download)", MODEL_FILE);
     let model_path = repo.get(MODEL_FILE).await.map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
-        message: format!("Failed to fetch model weights: {}", e),
+        message: format!("Failed to fetch model weights part 1: {}", e),
+        details: None, suggested_actions: None
+    })?;
+    
+    report("Downloading model weights part 2/2...", 0.6);
+    println!("[Candle] Fetching model part 2: {}", MODEL_FILE_2);
+    let model_path_2 = repo.get(MODEL_FILE_2).await.map_err(|e| AIError {
+        error_type: AIErrorType::NetworkError,
+        message: format!("Failed to fetch model weights part 2: {}", e),
         details: None, suggested_actions: None
     })?;
     
     report("Ready", 1.0);
-    Ok((model_path, config_path, tokenizer_path))
+    Ok((model_path, model_path_2, config_path, tokenizer_path))
 }
 
 pub async fn download_embedded_model(sender: mpsc::Sender<DownloadStatus>) -> Result<(), String> {
@@ -103,18 +106,16 @@ pub async fn check_candle_availability() -> bool {
     false
 }
 
-async fn load_model() -> Result<Arc<ModelContext>, AIError> {
-    {
-        let guard = MODEL_CACHE.lock().unwrap();
-        if let Some(ctx) = guard.as_ref() {
-            return Ok(ctx.clone());
-        }
-    }
+// Simplified load: returns config and paths, model is created per-request
+async fn get_model_paths() -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), AIError> {
+    let (model_path, model_path_2, config_path, tokenizer_path) = ensure_model_files(None).await?;
+    Ok((model_path, model_path_2, config_path, tokenizer_path))
+}
 
-    let (model_path, config_path, tokenizer_path) = ensure_model_files(None).await?;
+pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
+    let (model_path, model_path_2, config_path, tokenizer_path) = get_model_paths().await?;
+    let device = Device::Cpu;
 
-    let device = Device::Cpu; // Force CPU for simplicity/compatibility on 0.5B
-    
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| AIError {
         error_type: AIErrorType::InvalidConfiguration,
         message: format!("Token error: {}", e),
@@ -124,83 +125,69 @@ async fn load_model() -> Result<Arc<ModelContext>, AIError> {
     let config_str = std::fs::read_to_string(config_path).unwrap();
     let config: QwenConfig = serde_json::from_str(&config_str).unwrap();
 
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path], DType::F32, &device).unwrap() };
-    let model = QwenModel::new(&config, vb).unwrap();
+    // Create fresh model instance to ensure empty KV cache
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path, model_path_2], DType::F32, &device).unwrap() };
+    let mut model = QwenModel::new(&config, vb).unwrap();
 
-    let ctx = Arc::new(ModelContext {
-        model: Mutex::new(model),
-        tokenizer,
-        device,
-        config,
-    });
-
-    let mut guard = MODEL_CACHE.lock().unwrap();
-    *guard = Some(ctx.clone());
-    Ok(ctx)
-}
-
-pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
-    let ctx = load_model().await?;
-    
-    // Very simple prompt construction
+    // Phi-2 uses simple Instruct format (no special tokens needed)
     let mut prompt = String::new();
     for msg in &request.messages {
-        let role = match msg.role {
-            MessageRole::User => "user",
-            MessageRole::Assistant => "assistant",
-            MessageRole::System => "system",
-        };
-        prompt.push_str(&format!("<|im_start|>{}\n{}<|im_end|>\n", role, msg.content));
+        match msg.role {
+            MessageRole::System => prompt.push_str(&format!("Instruct: {}\n", msg.content)),
+            MessageRole::User => prompt.push_str(&format!("Instruct: {}\n", msg.content)),
+            MessageRole::Assistant => prompt.push_str(&format!("Output: {}\n", msg.content)),
+        }
     }
-    prompt.push_str("<|im_start|>assistant\n");
+    prompt.push_str("Output:");
 
-    let tokens = ctx.tokenizer.encode(prompt, true).map_err(|e| AIError {
+    let tokens = tokenizer.encode(prompt, true).map_err(|e| AIError {
         error_type: AIErrorType::InferenceFailed,
         message: format!("Encoding error: {}", e),
         details: None, suggested_actions: None
     })?;
 
-    let input_ids = tokens.get_ids().to_vec();
+    let mut input_ids = tokens.get_ids().to_vec();
     let mut generated_tokens = Vec::new();
     let mut logits_processor = LogitsProcessor::new(299792458, Some(request.model_config.parameters.temperature as f64), Some(request.model_config.parameters.top_p as f64));
-
-    let mut current_input_ids = input_ids.clone();
     
-    // Simplified inference loop (non-streaming for MVP, or we can stream chunks via channel if we change return type)
-    // The current signature returns InferenceResponse which is a single object.
-    // For streaming, we'd need a different command structure or use tauri events.
-    // For now, let's do blocking generation (collect all) then return.
-    
+    let start_time = std::time::Instant::now();
     let max_tokens = request.model_config.parameters.max_tokens as usize;
     let mut response_text = String::new();
-    let start_time = std::time::Instant::now();
+    
+    let mut pos = 0;
 
     for _ in 0..max_tokens {
-        let input_tensor = Tensor::new(current_input_ids.as_slice(), &ctx.device).unwrap().unsqueeze(0).unwrap();
-        // Based on previous error, QwenModel::forward takes 3 arguments: (input, pos, attention_mask)
-        let mut model = ctx.model.lock().unwrap();
-        let logits = model.forward(&input_tensor, 0, None).unwrap(); 
-        drop(model); // Release lock immediately after forward pass
-        let logits = logits.squeeze(0).unwrap().to_dtype(DType::F32).unwrap();
-        let next_token_logits = logits.get(logits.dim(0).unwrap() - 1).unwrap();
+        let (context_size, start_pos) = if pos == 0 {
+            (input_ids.len(), 0)
+        } else {
+            (1, pos)
+        };
+
+        let ctxt = &input_ids[input_ids.len() - context_size..];
+        let input_tensor = Tensor::new(ctxt, &device).unwrap().unsqueeze(0).unwrap();
         
-        let next_token = logits_processor.sample(&next_token_logits).unwrap();
+        // Forward pass with correct position
+        let logits = model.forward(&input_tensor, start_pos, None).unwrap();
+        let logits = logits.squeeze(0).unwrap();
+        let logits = logits.get(logits.dim(0).unwrap() - 1).unwrap().to_dtype(DType::F32).unwrap();
+
+        let next_token = logits_processor.sample(&logits).unwrap();
         generated_tokens.push(next_token);
-        
-        if let Some(text) = ctx.tokenizer.decode(&[next_token], true).ok() {
+        input_ids.push(next_token);
+        pos += context_size;
+
+        if let Some(text) = tokenizer.decode(&[next_token], true).ok() {
              response_text.push_str(&text);
-             // Stream the chunk
              let _ = window.emit("ai-response-chunk", &text);
         }
 
-        // Check stop (EOS)
-        if next_token == 151645 || next_token == 151643 { 
+        // Check stop (EOS for Phi-2)
+        if next_token == 50256 { 
             break;
         }
-
-        current_input_ids.push(next_token);
     }
-
+    
+    // ... return response ...
     Ok(InferenceResponse {
         message: ChatMessage {
             id: uuid::Uuid::new_v4().to_string(),
@@ -213,9 +200,9 @@ pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequ
         },
         is_complete: true,
         usage: Some(TokenUsage {
-            prompt_tokens: input_ids.len() as u32,
+            prompt_tokens: (input_ids.len() - generated_tokens.len()) as u32,
             completion_tokens: generated_tokens.len() as u32,
-            total_tokens: (input_ids.len() + generated_tokens.len()) as u32,
+            total_tokens: input_ids.len() as u32,
         }),
         inference_time_ms: Some(start_time.elapsed().as_millis() as u64),
     })
@@ -229,22 +216,22 @@ pub async fn get_candle_status() -> ProviderStatus {
         version: Some("0.4.1".to_string()),
         available_models: if available {
             vec![ModelConfig {
-                id: "embedded-qwen2.5".to_string(),
-                name: "Qwen2.5-Coder-0.5B (Embedded)".to_string(),
+                id: "embedded-phi2".to_string(),
+                name: "Phi-2 (Embedded)".to_string(),
                 provider: ModelProvider::Candle,
-                model_id: "qwen2.5-coder:0.5b".to_string(),
+                model_id: "phi-2".to_string(),
                 parameters: ModelParameters {
                     temperature: 0.7,
                     top_p: 0.9,
-                    max_tokens: 1024,
-                    stream: false,
-                    stop_sequences: None,
-                    context_window: Some(32768),
+                    max_tokens: 512,
+                    stream: true,
+                    stop_sequences: Some(vec!["Instruct:".to_string()]),
+                    context_window: Some(2048),
                 },
                 endpoint: None,
                 api_key: None,
                 is_available: true,
-                size_bytes: Some(1024 * 1024 * 1024), // Approx
+                size_bytes: Some(1536 * 1024 * 1024), // ~1.5GB
                 recommended_for: vec![AIMode::Agent, AIMode::QA],
             }]
         } else {
