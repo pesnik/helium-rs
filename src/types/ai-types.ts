@@ -127,10 +127,21 @@ export interface FileSystemContext {
     currentPath: string;
     /** Selected files/folders */
     selectedPaths: string[];
-    /** Visible files in current view */
-    visibleFiles?: string[];
+    /** Visible files in current view with metadata */
+    visibleFiles?: FileMetadata[];
     /** Recent scan data (if available) */
     scanData?: ScanSummary;
+}
+
+/**
+ * Metadata for a file or folder
+ */
+export interface FileMetadata {
+    name: string;
+    isDir: boolean;
+    size: number;
+    fileCount?: number;
+    lastModified: number;
 }
 
 /**

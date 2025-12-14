@@ -103,9 +103,21 @@ pub struct FileSystemContext {
     pub current_path: String,
     pub selected_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_files: Option<Vec<String>>,
+    pub visible_files: Option<Vec<FileMetadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan_data: Option<ScanSummary>,
+}
+
+/// File metadata for context
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMetadata {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<u64>,
+    pub last_modified: i64,
 }
 
 /// Scan summary

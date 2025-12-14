@@ -161,8 +161,11 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
     // Convert messages to Ollama format and inject context
     let mut ollama_messages: Vec<OllamaMessage> = Vec::new();
 
-    // 1. Inject Context if available
-    if let Some(ctx) = &request.fs_context {
+    // 1. Inject Context if available (AND system message not already present)
+    let has_system_message = request.messages.iter().any(|m| m.role == MessageRole::System);
+
+    if !has_system_message {
+        if let Some(ctx) = &request.fs_context {
         let mut context_str = String::new();
         context_str.push_str(&format!("Current Directory: {}\n", ctx.current_path));
         
@@ -178,8 +181,28 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
                  context_str.push_str("\nVisible Files in Current Directory:\n");
                  // Limit to 50 for prompt context window safety
                  let take_count = std::cmp::min(visible.len(), 50);
-                 for name in visible.iter().take(take_count) {
-                      context_str.push_str(&format!("- {}\n", name));
+                 for file in visible.iter().take(take_count) {
+                      let size_str = if file.size >= 1024 * 1024 * 1024 {
+                          format!("{:.2} GB", file.size as f64 / (1024.0 * 1024.0 * 1024.0))
+                      } else if file.size >= 1024 * 1024 {
+                          format!("{:.2} MB", file.size as f64 / (1024.0 * 1024.0))
+                      } else if file.size >= 1024 {
+                          format!("{:.2} KB", file.size as f64 / 1024.0)
+                      } else {
+                          format!("{} B", file.size)
+                      };
+                      
+                      let type_str = if file.is_dir {
+                          if let Some(count) = file.file_count {
+                              format!("Folder, {} items", count)
+                          } else {
+                              "Folder".to_string()
+                          }
+                      } else {
+                          format!("File, {}", size_str)
+                      };
+                      
+                      context_str.push_str(&format!("- {} ({})\n", file.name, type_str));
                  }
                  if visible.len() > take_count {
                       context_str.push_str(&format!("...and {} more\n", visible.len() - take_count));
@@ -193,6 +216,7 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
                 content: format!("Context Information:\n{}\nUse this context to answer the user's questions about their files.", context_str),
             });
         }
+    }
     }
 
     // 2. Append Conversation History
