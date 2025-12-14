@@ -53,6 +53,7 @@ import { DiskUsageChart } from './DiskUsageChart';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { FileNode } from '@/types';
+import { FileMetadata } from '@/types/ai-types';
 
 const useStyles = makeStyles({
     container: {
@@ -155,7 +156,7 @@ const ScanProgressBanner = ({ progress, onCancel, speed }: {
 interface FileExplorerProps {
     onToggleAI?: () => void;
     isAIPanelOpen?: boolean;
-    onContextChange?: (path: string, selectedItems: string[], visibleFiles?: string[]) => void;
+    onContextChange?: (path: string, selectedItems: string[], visibleFiles?: FileMetadata[]) => void;
 }
 
 export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: FileExplorerProps) => {
@@ -182,8 +183,16 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
     // Context synchronization
     React.useEffect(() => {
         if (onContextChange) {
+            console.log('[FileExplorer] Context changing to:', state.path); // DEBUG
             const selectedArray = Array.from(selectedItems).map(id => String(id));
-            const visibleFiles = state.data?.children?.map(c => c.name) || [];
+            const visibleFiles = state.data?.children?.map(c => ({
+                name: c.name,
+                isDir: c.is_dir,
+                size: c.size,
+                fileCount: c.file_count,
+                lastModified: c.last_modified
+            })) || [];
+
             // Limit to top 100 files to avoid context overflow
             const contextFiles = visibleFiles.slice(0, 100);
             onContextChange(state.path, selectedArray, contextFiles);

@@ -87,11 +87,24 @@ const useStyles = makeStyles({
 });
 
 interface AIPanelProps {
+    isOpen: boolean;
+    onClose: () => void;
     fsContext?: FileSystemContext;
+    className?: string;
 }
 
-export function AIPanel({ fsContext }: AIPanelProps) {
+export const AIPanel = ({
+    isOpen,
+    onClose,
+    fsContext,
+    className,
+}: AIPanelProps) => {
     const styles = useStyles();
+
+    // DEBUG: Trace context reception
+    React.useEffect(() => {
+        console.log('[AIPanel] Received fsContext path:', fsContext?.currentPath);
+    }, [fsContext?.currentPath]);
 
     const [mode, setMode] = useState<AIMode>(AIMode.QA);
     const [messages, setMessages] = useState<ChatMessage[]>([]);

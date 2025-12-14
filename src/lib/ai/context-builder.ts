@@ -41,21 +41,43 @@ export function buildFileSystemContext(context: FileSystemContext): string {
         });
     }
 
+    // Visible files with metadata
+    if (context.visibleFiles && context.visibleFiles.length > 0) {
+        parts.push(`\nVisible Files in Current Directory:`);
+
+        // Limit to 50 files for token efficiency
+        const filesToShow = context.visibleFiles.slice(0, 50);
+
+        filesToShow.forEach((file) => {
+            const date = new Date(file.lastModified * 1000).toLocaleDateString();
+            if (file.isDir) {
+                const countStr = file.fileCount !== undefined ? `, ${file.fileCount} items` : '';
+                parts.push(`- ${file.name}/ (Folder${countStr}, Modified: ${date})`);
+            } else {
+                parts.push(`- ${file.name} (Size: ${formatFileSize(file.size)}, Modified: ${date})`);
+            }
+        });
+
+        if (context.visibleFiles.length > 50) {
+            parts.push(`...and ${context.visibleFiles.length - 50} more files`);
+        }
+    }
+
     // Scan data summary
     if (context.scanData) {
-        parts.push('\nFile System Summary:');
+        parts.push('\nFile System Summary (Deep Scan):');
         parts.push(`- Total Files: ${context.scanData.totalFiles.toLocaleString()}`);
         parts.push(`- Total Size: ${formatFileSize(context.scanData.totalSize)}`);
 
         if (context.scanData.largestFiles.length > 0) {
-            parts.push('\nLargest Files:');
+            parts.push('\nLargest Files (Deep Scan):');
             context.scanData.largestFiles.slice(0, 10).forEach((file, index) => {
                 parts.push(`${index + 1}. ${file.path} - ${formatFileSize(file.size)}`);
             });
         }
 
         if (Object.keys(context.scanData.fileTypes).length > 0) {
-            parts.push('\nFile Type Distribution:');
+            parts.push('\nFile Type Distribution (Deep Scan):');
             const sortedTypes = Object.entries(context.scanData.fileTypes)
                 .sort(([, a], [, b]) => b - a)
                 .slice(0, 10);

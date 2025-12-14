@@ -191,6 +191,8 @@ function prepareMessages(request: InferenceRequest): ChatMessage[] {
         ? buildFileSystemContext(request.fsContext)
         : 'No file system context available.';
 
+    console.log('[ai-service] prepareMessages context path:', request.fsContext?.currentPath); // DEBUG
+
     // Build system prompt
     const systemPrompt = buildPrompt(template.systemPrompt, {
         fs_context: fsContextStr,
