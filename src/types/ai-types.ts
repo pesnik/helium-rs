@@ -127,6 +127,8 @@ export interface FileSystemContext {
     currentPath: string;
     /** Selected files/folders */
     selectedPaths: string[];
+    /** Visible files in current view */
+    visibleFiles?: string[];
     /** Recent scan data (if available) */
     scanData?: ScanSummary;
 }

@@ -155,9 +155,10 @@ const ScanProgressBanner = ({ progress, onCancel, speed }: {
 interface FileExplorerProps {
     onToggleAI?: () => void;
     isAIPanelOpen?: boolean;
+    onContextChange?: (path: string, selectedItems: string[], visibleFiles?: string[]) => void;
 }
 
-export const FileExplorer = ({ onToggleAI, isAIPanelOpen }: FileExplorerProps) => {
+export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: FileExplorerProps) => {
     const styles = useStyles();
     const [state, setState] = React.useState<ExplorerState>({
         path: 'C:\\',
@@ -177,6 +178,17 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen }: FileExplorerProps) =
     const [isScanning, setIsScanning] = useState(false);
     const [scanSpeed, setScanSpeed] = useState(0);
     const lastProgressRef = useRef<{ count: number, time: number } | null>(null);
+
+    // Context synchronization
+    React.useEffect(() => {
+        if (onContextChange) {
+            const selectedArray = Array.from(selectedItems).map(id => String(id));
+            const visibleFiles = state.data?.children?.map(c => c.name) || [];
+            // Limit to top 100 files to avoid context overflow
+            const contextFiles = visibleFiles.slice(0, 100);
+            onContextChange(state.path, selectedArray, contextFiles);
+        }
+    }, [state.path, selectedItems, state.data, onContextChange]);
 
     // Context Menu State
     const [contextMenuOpen, setContextMenuOpen] = React.useState(false);

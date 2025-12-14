@@ -16,6 +16,7 @@ import {
     Button,
     Spinner,
 } from '@fluentui/react-components';
+import { AISettingsPanel } from './AISettingsPanel';
 import {
     Settings24Regular,
     LockClosed24Filled,
@@ -29,6 +30,7 @@ import {
     MessageRole,
     ModelConfig,
     FileSystemContext,
+    ModelProvider,
 } from '@/types/ai-types';
 import {
     getProvidersStatus,
@@ -98,6 +100,7 @@ export function AIPanel({ fsContext }: AIPanelProps) {
 
     const [availableModels, setAvailableModels] = useState<ModelConfig[]>([]);
     const [selectedModelId, setSelectedModelId] = useState<string | undefined>();
+    const [showSettings, setShowSettings] = useState(false);
 
     // Initialize: Load available models
     useEffect(() => {
@@ -108,9 +111,8 @@ export function AIPanel({ fsContext }: AIPanelProps) {
                 // Collect all available models
                 const allModels: ModelConfig[] = [];
                 statuses.forEach((status) => {
-                    if (status.isAvailable) {
-                        allModels.push(...status.availableModels);
-                    }
+                    // Include models even if provider is "offline" (e.g. for "Known Models" library)
+                    allModels.push(...status.availableModels);
                 });
 
                 setAvailableModels(allModels);
@@ -137,6 +139,12 @@ export function AIPanel({ fsContext }: AIPanelProps) {
             setSelectedModelId(defaultModel.id);
         }
     }, [mode, availableModels]);
+
+    const handleUpdateConfig = (newConfig: ModelConfig) => {
+        // Update the model config in available models list
+        setAvailableModels(prev => prev.map(m => m.id === newConfig.id ? newConfig : m));
+        // Also update local cache if needed, but for now just state is enough
+    };
 
     const handleSendMessage = async (content: string) => {
         const userMessage = createMessage(MessageRole.User, content);
@@ -207,10 +215,11 @@ export function AIPanel({ fsContext }: AIPanelProps) {
                             Local
                         </Badge>
                         <Button
-                            appearance="subtle"
+                            appearance={showSettings ? "primary" : "subtle"}
                             icon={<Settings24Regular />}
                             size="small"
                             title="AI Settings"
+                            onClick={() => setShowSettings(!showSettings)}
                         />
                     </div>
                 </div>
@@ -219,13 +228,13 @@ export function AIPanel({ fsContext }: AIPanelProps) {
                     <ModeSelector
                         selectedMode={mode}
                         onModeChange={handleModeChange}
-                        disabled={isLoading}
+                        disabled={isLoading || showSettings}
                     />
                     <ModelSelector
                         models={availableModels}
                         selectedModelId={selectedModelId}
                         onModelChange={setSelectedModelId}
-                        disabled={isLoading || availableModels.length === 0}
+                        disabled={isLoading || availableModels.length === 0 || showSettings}
                     />
                 </div>
             </div>
@@ -233,19 +242,25 @@ export function AIPanel({ fsContext }: AIPanelProps) {
             <div className={styles.chatContainer}>
                 {availableModels.length === 0 ? (
                     <div className={styles.loadingContainer}>
-                        <Text weight="semibold">No AI models detected</Text>
-                        <Text size={200}>
-                            Install Ollama or use in-browser models to get started.
-                        </Text>
+                        <Text weight="semibold" size={400}>No AI models detected</Text>
+                        <div style={{ textAlign: 'center', padding: '0 20px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+                            <Text>
+                                To use <strong>QA Mode</strong>, you need a local AI engine.
+                            </Text>
+                            <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
+                                Ollama is a free tool that runs powerful LLMs locally on your machine, ensuring total privacy.
+                            </Text>
+                        </div>
+
                         <Button
                             appearance="primary"
                             onClick={() => window.open('https://ollama.com', '_blank')}
                         >
-                            Get Ollama
+                            Download Ollama
                         </Button>
-                        <Text size={200} style={{ marginTop: '8px' }}>
-                            Note: Transformer.js models should appear automatically.
-                            If not, check your network connection for initial download.
+
+                        <Text size={200} style={{ marginTop: '16px', textAlign: 'center', maxWidth: '80%' }}>
+                            <strong>Tip:</strong> Switch to <strong>Summarize Mode</strong> to use the built-in browser model (no download required).
                         </Text>
                     </div>
                 ) : (
@@ -253,6 +268,7 @@ export function AIPanel({ fsContext }: AIPanelProps) {
                         messages={messages}
                         onSendMessage={handleSendMessage}
                         isLoading={isLoading}
+                        loadingStatus="Thinking..."
                         placeholder={
                             mode === AIMode.Summarize
                                 ? 'Describe what you want to summarize...'
@@ -261,6 +277,18 @@ export function AIPanel({ fsContext }: AIPanelProps) {
                     />
                 )}
             </div>
+
+            {/* Settings Modal */}
+            {selectedModelId && availableModels.find(m => m.id === selectedModelId) && (
+                <AISettingsPanel
+                    modelConfig={availableModels.find(m => m.id === selectedModelId)!}
+                    allModels={availableModels}
+                    onUpdateConfig={handleUpdateConfig}
+                    onSelectModel={setSelectedModelId}
+                    onClose={() => setShowSettings(false)}
+                    open={showSettings}
+                />
+            )}
         </div>
     );
 }

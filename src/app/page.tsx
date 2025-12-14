@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { FileSystemContext } from '@/types/ai-types';
 import { FileExplorer } from '@/components/FileExplorer';
 import { AIPanel } from '@/components/AIPanel';
 import { makeStyles, shorthands, tokens } from '@fluentui/react-components';
@@ -50,6 +51,9 @@ export default function Home() {
   const [panelWidth, setPanelWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
 
+  // AI Context State
+  const [fsContext, setFsContext] = useState<FileSystemContext | undefined>(undefined);
+
   const startResizing = React.useCallback(() => {
     setIsResizing(true);
   }, []);
@@ -70,6 +74,14 @@ export default function Home() {
     [isResizing]
   );
 
+  const handleContextChange = React.useCallback((path: string, selectedItems: string[], visibleFiles?: string[]) => {
+    setFsContext({
+      currentPath: path,
+      selectedPaths: selectedItems,
+      visibleFiles: visibleFiles,
+    });
+  }, []);
+
   React.useEffect(() => {
     window.addEventListener("mousemove", resize);
     window.addEventListener("mouseup", stopResizing);
@@ -85,6 +97,7 @@ export default function Home() {
         <FileExplorer
           onToggleAI={() => setIsAIPanelOpen(!isAIPanelOpen)}
           isAIPanelOpen={isAIPanelOpen}
+          onContextChange={handleContextChange}
         />
       </div>
 
@@ -104,7 +117,7 @@ export default function Home() {
           pointerEvents: isAIPanelOpen ? 'auto' : 'none',
         }}
       >
-        <AIPanel />
+        <AIPanel fsContext={fsContext} />
       </div>
     </main>
   );

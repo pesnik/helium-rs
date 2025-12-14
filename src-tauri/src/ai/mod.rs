@@ -37,6 +37,7 @@ pub enum MessageRole {
 
 /// Model configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelConfig {
     pub id: String,
     pub name: String,
@@ -55,6 +56,7 @@ pub struct ModelConfig {
 
 /// Model inference parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelParameters {
     pub temperature: f32,
     pub top_p: f32,
@@ -68,6 +70,7 @@ pub struct ModelParameters {
 
 /// Chat message
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
     pub id: String,
     pub role: MessageRole,
@@ -83,6 +86,7 @@ pub struct ChatMessage {
 
 /// Inference request
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InferenceRequest {
     pub session_id: String,
     pub model_config: ModelConfig,
@@ -94,15 +98,19 @@ pub struct InferenceRequest {
 
 /// File system context
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileSystemContext {
     pub current_path: String,
     pub selected_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visible_files: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan_data: Option<ScanSummary>,
 }
 
 /// Scan summary
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanSummary {
     pub total_files: u64,
     pub total_size: u64,
@@ -113,6 +121,7 @@ pub struct ScanSummary {
 
 /// File information
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileInfo {
     pub path: String,
     pub size: u64,
@@ -120,6 +129,7 @@ pub struct FileInfo {
 
 /// Inference response
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InferenceResponse {
     pub message: ChatMessage,
     pub is_complete: bool,
@@ -131,6 +141,7 @@ pub struct InferenceResponse {
 
 /// Token usage statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -139,6 +150,7 @@ pub struct TokenUsage {
 
 /// Provider status
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderStatus {
     pub provider: ModelProvider,
     pub is_available: bool,
@@ -164,6 +176,7 @@ pub enum AIErrorType {
 
 /// AI error
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AIError {
     pub error_type: AIErrorType,
     pub message: String,

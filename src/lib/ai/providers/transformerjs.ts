@@ -22,6 +22,11 @@ async function loadTransformers() {
     if (!transformersModule) {
         // @ts-ignore - dynamic import
         transformersModule = await import('@xenova/transformers');
+
+        // Configure environment for browser execution
+        // Disable local model checking to prevent FS errors
+        transformersModule.env.allowLocalModels = false;
+        transformersModule.env.useBrowserCache = true;
     }
     return transformersModule;
 }
@@ -34,7 +39,7 @@ const modelCache = new Map<string, any>();
 /**
  * Load a model from Transformer.js
  */
-async function loadModel(modelId: string): Promise<any> {
+async function loadModel(modelId: string, onProgress?: (progress: any) => void): Promise<any> {
     if (modelCache.has(modelId)) {
         return modelCache.get(modelId);
     }
@@ -44,8 +49,8 @@ async function loadModel(modelId: string): Promise<any> {
     try {
         // For summarization, we'll use pipeline API
         const model = await transformers.pipeline('summarization', modelId, {
-            // Use WebGPU if available, fallback to WASM
-            device: 'webgpu',
+            // Allow auto-detection of best device (WebGPU > WASM > CPU)
+            progress_callback: onProgress,
         });
 
         modelCache.set(modelId, model);
@@ -70,7 +75,8 @@ async function loadModel(modelId: string): Promise<any> {
  */
 export async function runTransformerJSInference(
     request: InferenceRequest,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    onProgress?: (progress: any) => void
 ): Promise<InferenceResponse> {
     const startTime = Date.now();
 
@@ -87,8 +93,8 @@ export async function runTransformerJSInference(
             } as AIError;
         }
 
-        // Load the model
-        const model = await loadModel(request.modelConfig.modelId);
+        // Load the model with progress callback
+        const model = await loadModel(request.modelConfig.modelId, onProgress);
 
         // For summarization mode, we'll use the summarization pipeline
         const result = await model(lastMessage.content, {
@@ -131,11 +137,17 @@ export async function runTransformerJSInference(
             throw error; // Already an AIError
         }
 
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
         throw {
             type: AIErrorType.InferenceFailed,
-            message: 'Inference failed',
-            details: { error: error.message },
-            suggestedActions: ['Try again', 'Use a different model'],
+            message: `Inference failed: ${errorMessage}`,
+            details: { error: errorMessage },
+            suggestedActions: [
+                'Check your internet connection (needed for first run)',
+                'Try a shorter input',
+                'Reload the application'
+            ],
         } as AIError;
     }
 }

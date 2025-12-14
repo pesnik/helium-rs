@@ -63,11 +63,18 @@ const useStyles = makeStyles({
         backgroundColor: tokens.colorNeutralBackground3,
         color: tokens.colorNeutralForeground1,
     },
-    messageBubble: {
+    messageContent: {
         maxWidth: '70%',
+        display: 'flex',
+        flexDirection: 'column',
+    },
+    messageBubble: {
+        // maxWidth moved to messageContent
         ...shorthands.padding('12px', '16px'),
         ...shorthands.borderRadius('16px'),
         wordWrap: 'break-word',
+        whiteSpace: 'pre-wrap', // Preserve newlines/lists from AI
+        lineHeight: '1.5',
     },
     userBubble: {
         backgroundColor: tokens.colorBrandBackground,
@@ -113,6 +120,7 @@ interface AIChatProps {
     onSendMessage: (content: string) => void;
     isLoading?: boolean;
     placeholder?: string;
+    loadingStatus?: React.ReactNode;
 }
 
 export function AIChat({
@@ -120,6 +128,7 @@ export function AIChat({
     onSendMessage,
     isLoading = false,
     placeholder = 'Ask about your files...',
+    loadingStatus = 'Thinking...',
 }: AIChatProps) {
     const styles = useStyles();
     const [inputValue, setInputValue] = useState('');
@@ -167,8 +176,8 @@ export function AIChat({
                             >
                                 <div
                                     className={`${styles.messageIcon} ${message.role === MessageRole.User
-                                            ? styles.userIcon
-                                            : styles.assistantIcon
+                                        ? styles.userIcon
+                                        : styles.assistantIcon
                                         }`}
                                 >
                                     {message.role === MessageRole.User ? (
@@ -177,11 +186,11 @@ export function AIChat({
                                         <Bot24Regular />
                                     )}
                                 </div>
-                                <div>
+                                <div className={styles.messageContent}>
                                     <div
                                         className={`${styles.messageBubble} ${message.role === MessageRole.User
-                                                ? styles.userBubble
-                                                : styles.assistantBubble
+                                            ? styles.userBubble
+                                            : styles.assistantBubble
                                             }`}
                                     >
                                         <Text>{message.content}</Text>
@@ -199,7 +208,7 @@ export function AIChat({
                                 </div>
                                 <div className={styles.streamingIndicator}>
                                     <Spinner size="tiny" />
-                                    <Text size={200}>Thinking...</Text>
+                                    <Text size={200}>{loadingStatus}</Text>
                                 </div>
                             </div>
                         )}

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 /// Default Ollama endpoint
-const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434";
+const DEFAULT_OLLAMA_ENDPOINT: &str = "http://127.0.0.1:11434";
 
 /// Ollama chat request format
 #[derive(Debug, Serialize)]
@@ -66,10 +66,18 @@ struct OllamaModel {
 /// Check if Ollama is available
 pub async fn check_ollama_availability(endpoint: Option<&str>) -> Result<bool, AIError> {
     let url = format!("{}/api/tags", endpoint.unwrap_or(DEFAULT_OLLAMA_ENDPOINT));
+    println!("Checking Ollama status at: {}", url);
 
     match reqwest::get(&url).await {
-        Ok(response) => Ok(response.status().is_success()),
-        Err(_) => Ok(false),
+        Ok(response) => {
+            let status = response.status();
+            println!("Ollama response status: {}", status);
+            Ok(status.is_success())
+        },
+        Err(e) => {
+            println!("Ollama connection failed: {}", e);
+            Ok(false)
+        },
     }
 }
 
@@ -150,18 +158,54 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
     let url = format!("{}/api/chat", endpoint);
 
     // Convert messages to Ollama format
-    let ollama_messages: Vec<OllamaMessage> = request
-        .messages
-        .iter()
-        .map(|m| OllamaMessage {
+    // Convert messages to Ollama format and inject context
+    let mut ollama_messages: Vec<OllamaMessage> = Vec::new();
+
+    // 1. Inject Context if available
+    if let Some(ctx) = &request.fs_context {
+        let mut context_str = String::new();
+        context_str.push_str(&format!("Current Directory: {}\n", ctx.current_path));
+        
+        if !ctx.selected_paths.is_empty() {
+             context_str.push_str("Selected Items:\n");
+             for path in &ctx.selected_paths {
+                 context_str.push_str(&format!("- {}\n", path));
+             }
+        }
+
+        if let Some(visible) = &ctx.visible_files {
+             if !visible.is_empty() {
+                 context_str.push_str("\nVisible Files in Current Directory:\n");
+                 // Limit to 50 for prompt context window safety
+                 let take_count = std::cmp::min(visible.len(), 50);
+                 for name in visible.iter().take(take_count) {
+                      context_str.push_str(&format!("- {}\n", name));
+                 }
+                 if visible.len() > take_count {
+                      context_str.push_str(&format!("...and {} more\n", visible.len() - take_count));
+                 }
+             }
+        }
+        
+        if !context_str.is_empty() {
+            ollama_messages.push(OllamaMessage {
+                role: "system".to_string(),
+                content: format!("Context Information:\n{}\nUse this context to answer the user's questions about their files.", context_str),
+            });
+        }
+    }
+
+    // 2. Append Conversation History
+    for m in &request.messages {
+        ollama_messages.push(OllamaMessage {
             role: match m.role {
                 MessageRole::User => "user".to_string(),
                 MessageRole::Assistant => "assistant".to_string(),
                 MessageRole::System => "system".to_string(),
             },
             content: m.content.clone(),
-        })
-        .collect();
+        });
+    }
 
     let ollama_request = OllamaChatRequest {
         model: request.model_config.model_id.clone(),

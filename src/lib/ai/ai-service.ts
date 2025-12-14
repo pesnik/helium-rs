@@ -24,6 +24,35 @@ import {
 import { buildFileSystemContext } from './context-builder';
 import { getTemplateForMode, buildPrompt } from './prompts';
 
+// Known models registry
+export const KNOWN_MODELS: ModelConfig[] = [
+    {
+        id: 'llama3.2:1b', name: 'Llama 3.2 1B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'llama3.2:1b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
+        recommendedFor: [AIMode.QA, AIMode.Summarize], sizeBytes: 1.3e9
+    },
+    {
+        id: 'llama3.2:3b', name: 'Llama 3.2 3B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'llama3.2:3b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
+        recommendedFor: [AIMode.QA, AIMode.Agent], sizeBytes: 2.0e9
+    },
+    {
+        id: 'mistral', name: 'Mistral 7B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'mistral', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 4096, stream: true },
+        recommendedFor: [AIMode.Agent], sizeBytes: 4.1e9
+    },
+    {
+        id: 'qwen2.5-coder:0.5b', name: 'Qwen 2.5 Coder 0.5B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'qwen2.5-coder:0.5b', parameters: { temperature: 0.2, topP: 0.7, maxTokens: 4096, stream: true },
+        recommendedFor: [AIMode.Agent], sizeBytes: 0.35e9
+    },
+    {
+        id: 'gemma:2b', name: 'Gemma 2B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'gemma:2b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
+        recommendedFor: [AIMode.Summarize], sizeBytes: 1.5e9
+    }
+];
+
 /**
  * Get status of all AI providers
  */
@@ -32,14 +61,44 @@ export async function getProvidersStatus(): Promise<ProviderStatus[]> {
         // Get backend provider status (Ollama, etc.)
         const backendStatuses = await invoke<ProviderStatus[]>('get_ai_providers_status');
 
+        // Merge backend/installed models with KNOWN_MODELS for Ollama
+        // Robust check: Handle case sensitivity or missing status
+        let ollamaStatus = backendStatuses.find(p => p.provider.toLowerCase() === ModelProvider.Ollama.toLowerCase());
+
+        if (!ollamaStatus) {
+            // If backend didn't return Ollama status (e.g. not running/found), create a placeholder
+            // so we can still show the "Library" of known models for download guidance
+            ollamaStatus = {
+                provider: ModelProvider.Ollama,
+                isAvailable: false,
+                availableModels: [],
+                version: undefined
+            };
+            backendStatuses.push(ollamaStatus);
+        }
+
+        if (ollamaStatus) {
+            // Ensure availableModels exists (backend might return null or snake_case if misconfigured)
+            if (!ollamaStatus.availableModels) {
+                ollamaStatus.availableModels = [];
+            }
+
+            const installedIds = new Set(ollamaStatus.availableModels.map(m => m.modelId));
+            KNOWN_MODELS.forEach(known => {
+                if (!installedIds.has(known.modelId)) {
+                    ollamaStatus.availableModels.push(known);
+                }
+            });
+        }
+
         // Add TransformerJS status (browser-based)
-        const transformerJSAvailable = await isTransformerJSAvailable();
+        // TransformerJS is a client-side dependency, so it's always "available" to try
+        // The actual load happens on inference
         const transformerJSStatus: ProviderStatus = {
             provider: ModelProvider.TransformerJS,
-            isAvailable: transformerJSAvailable,
+            isAvailable: true,
             version: '2.17.2',
-            availableModels: transformerJSAvailable ? getAvailableTransformerJSModels() : [],
-            error: transformerJSAvailable ? undefined : 'Transformer.js not loaded',
+            availableModels: getAvailableTransformerJSModels(),
         };
 
         return [transformerJSStatus, ...backendStatuses];
@@ -98,7 +157,8 @@ export async function checkProviderAvailability(
  */
 export async function runInference(
     request: InferenceRequest,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    onProgress?: (progress: any) => void
 ): Promise<InferenceResponse> {
     // Add system prompt based on mode
     const messagesWithSystem = prepareMessages(request);
@@ -106,7 +166,7 @@ export async function runInference(
 
     // Route to appropriate provider
     if (request.modelConfig.provider === ModelProvider.TransformerJS) {
-        return await runTransformerJSInference(requestWithSystem, onChunk);
+        return await runTransformerJSInference(requestWithSystem, onChunk, onProgress);
     }
 
     // For backend providers (Ollama, OpenAI-compatible)
@@ -211,4 +271,60 @@ export function getDefaultModelForMode(
 
     // For QA, prefer medium-sized models
     return recommendedModels[0];
+}
+
+/**
+ * Pull/Download a model from Ollama
+ */
+export async function pullOllamaModel(
+    modelName: string,
+    endpoint: string = 'http://localhost:11434',
+    onProgress?: (data: any) => void
+): Promise<void> {
+    try {
+        const response = await fetch(`${endpoint}/api/pull`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: modelName, stream: true }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ollama pull failed: ${response.statusText}`);
+        }
+
+        if (!response.body) throw new Error('No response body');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+
+            // Process all complete lines
+            for (let i = 0; i < lines.length - 1; i++) {
+                const line = lines[i].trim();
+                if (line) {
+                    try {
+                        const json = JSON.parse(line);
+                        if (json.error) throw new Error(json.error);
+                        onProgress?.(json);
+                    } catch (e) {
+                        console.error("Error parsing JSON line:", e);
+                    }
+                }
+            }
+
+            // Keep the last partial line in buffer
+            buffer = lines[lines.length - 1];
+        }
+
+    } catch (error) {
+        console.error('Failed to pull model:', error);
+        throw error;
+    }
 }
