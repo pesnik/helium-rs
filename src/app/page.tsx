@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { FileSystemContext } from '@/types/ai-types';
+import { FileSystemContext, FileMetadata } from '@/types/ai-types';
 import { FileExplorer } from '@/components/FileExplorer';
 import { AIPanel } from '@/components/AIPanel';
 import { makeStyles, shorthands, tokens } from '@fluentui/react-components';
@@ -74,7 +74,7 @@ export default function Home() {
     [isResizing]
   );
 
-  const handleContextChange = React.useCallback((path: string, selectedItems: string[], visibleFiles?: string[]) => {
+  const handleContextChange = React.useCallback((path: string, selectedItems: string[], visibleFiles?: FileMetadata[]) => {
     setFsContext({
       currentPath: path,
       selectedPaths: selectedItems,
@@ -117,7 +117,11 @@ export default function Home() {
           pointerEvents: isAIPanelOpen ? 'auto' : 'none',
         }}
       >
-        <AIPanel fsContext={fsContext} />
+        <AIPanel
+          isOpen={isAIPanelOpen}
+          onClose={() => setIsAIPanelOpen(false)}
+          fsContext={fsContext}
+        />
       </div>
     </main>
   );
