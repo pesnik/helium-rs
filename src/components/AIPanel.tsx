@@ -214,13 +214,14 @@ export const AIPanel = ({
 
             // Check if model is available (already downloaded)
             const isModelDownloaded = selectedModel?.isAvailable;
+            const modelSize = selectedModel?.sizeBytes ? `${(selectedModel.sizeBytes / 1e9).toFixed(1)}GB` : '~1GB';
 
             const downloadMessage: ChatMessage = {
                 id: downloadMsgId,
                 role: MessageRole.Assistant,
                 content: isModelDownloaded
                     ? '⚙️ Loading embedded AI model...'
-                    : '📥 Downloading embedded AI model (Phi-2, ~1.5GB). This will take 3-5 minutes on first use...',
+                    : `📥 Downloading ${selectedModel?.name || 'embedded AI model'} (${modelSize}). First download may take a few minutes...`,
                 timestamp: Date.now(),
             };
             setMessages((prev) => [...prev, downloadMessage]);

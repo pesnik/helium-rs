@@ -51,6 +51,22 @@ export const KNOWN_MODELS: ModelConfig[] = [
         id: 'gemma:2b', name: 'Gemma 2B', provider: ModelProvider.Ollama, isAvailable: false,
         modelId: 'gemma:2b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
         recommendedFor: [AIMode.Summarize], sizeBytes: 1.5e9
+    },
+    // Embedded AI (Candle) - Multiple options
+    {
+        id: 'embedded-qwen1.5', name: 'Qwen1.5-0.5B (Embedded)', provider: ModelProvider.Candle, isAvailable: true,
+        modelId: 'qwen1.5:0.5b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 512, stream: true },
+        recommendedFor: [AIMode.QA], sizeBytes: 500e6
+    },
+    {
+        id: 'embedded-phi2', name: 'Phi-2 (Embedded)', provider: ModelProvider.Candle, isAvailable: true,
+        modelId: 'phi-2', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 512, stream: true },
+        recommendedFor: [AIMode.Agent, AIMode.QA], sizeBytes: 2.7e9
+    },
+    {
+        id: 'embedded-stablelm', name: 'StableLM-2-1.6B (Embedded)', provider: ModelProvider.Candle, isAvailable: true,
+        modelId: 'stablelm-2-1.6b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 512, stream: true },
+        recommendedFor: [AIMode.Agent], sizeBytes: 3.3e9
     }
 ];
 

@@ -16,11 +16,59 @@ use tokenizers::Tokenizer;
 use tokio::sync::mpsc;
 use lazy_static::lazy_static;
 
-const MODEL_REPO: &str = "microsoft/phi-2";
-const TOKENIZER_FILE: &str = "tokenizer.json";
-const MODEL_FILE: &str = "model-00001-of-00002.safetensors";
-const MODEL_FILE_2: &str = "model-00002-of-00002.safetensors";
-const CONFIG_FILE: &str = "config.json";
+// Model definition for configurable models
+#[derive(Clone)]
+struct ModelDefinition {
+    repo: &'static str,
+    model_files: Vec<&'static str>,
+    tokenizer_file: &'static str,
+    config_file: &'static str,
+    eos_tokens: Vec<u32>,
+    prompt_format: PromptFormat,
+}
+
+#[derive(Clone)]
+enum PromptFormat {
+    ChatML,  // <|im_start|>role\ncontent<|im_end|>
+    Instruct, // Instruct: ... Output:
+}
+
+// Registry of supported models
+fn get_model_registry() -> std::collections::HashMap<&'static str, ModelDefinition> {
+    let mut registry = std::collections::HashMap::new();
+    
+    // Qwen1.5-0.5B - Smallest (~500MB)
+    registry.insert("qwen1.5:0.5b", ModelDefinition {
+        repo: "Qwen/Qwen1.5-0.5B-Chat",
+        model_files: vec!["model.safetensors"],
+        tokenizer_file: "tokenizer.json",
+        config_file: "config.json",
+        eos_tokens: vec![151645, 151643],
+        prompt_format: PromptFormat::ChatML,
+    });
+    
+    // Phi-2 - Best quality (~2.7GB)
+    registry.insert("phi-2", ModelDefinition {
+        repo: "microsoft/phi-2",
+        model_files: vec!["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"],
+        tokenizer_file: "tokenizer.json",
+        config_file: "config.json",
+        eos_tokens: vec![50256],
+        prompt_format: PromptFormat::Instruct,
+    });
+    
+    // StableLM-2-1.6B - Middle ground (~3.3GB)
+    registry.insert("stablelm-2-1.6b", ModelDefinition {
+        repo: "stabilityai/stablelm-2-1_6b",
+        model_files: vec!["model.safetensors"],
+        tokenizer_file: "tokenizer.json",
+        config_file: "config.json",
+        eos_tokens: vec![0, 2],
+        prompt_format: PromptFormat::ChatML,
+    });
+    
+    registry
+}
 
 
 
@@ -31,15 +79,22 @@ pub struct DownloadStatus {
 }
 
 /// Download the model if needed and return paths
-async fn ensure_model_files(sender: Option<mpsc::Sender<DownloadStatus>>) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), AIError> {
+async fn ensure_model_files(model_id: &str, sender: Option<mpsc::Sender<DownloadStatus>>) -> Result<(Vec<PathBuf>, PathBuf, PathBuf), AIError> {
+    let registry = get_model_registry();
+    let model_def = registry.get(model_id).ok_or_else(|| AIError {
+        error_type: AIErrorType::InvalidConfiguration,
+        message: format!("Unknown model ID: {}", model_id),
+        details: None,
+        suggested_actions: Some(vec!["Use a supported model ID".to_string()]),
+    })?;
     let api = Api::new().map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
         message: format!("Failed to initialize HF API: {}", e),
         details: None, suggested_actions: None
     })?;
     
-    println!("[Candle] Initializing HuggingFace API for model: {}", MODEL_REPO);
-    let repo = api.repo(Repo::new(MODEL_REPO.to_string(), RepoType::Model));
+    println!("[Candle] Initializing HuggingFace API for model: {}", model_def.repo);
+    let repo = api.repo(Repo::new(model_def.repo.to_string(), RepoType::Model));
 
     let report = |msg: &str, prog: f32| {
         if let Some(tx) = &sender {
@@ -51,69 +106,66 @@ async fn ensure_model_files(sender: Option<mpsc::Sender<DownloadStatus>>) -> Res
     };
 
     report("Checking/Downloading tokenizer...", 0.1);
-    println!("[Candle] Fetching tokenizer: {}", TOKENIZER_FILE);
-    let tokenizer_path = repo.get(TOKENIZER_FILE).await.map_err(|e| AIError {
+    println!("[Candle] Fetching tokenizer: {}", model_def.tokenizer_file);
+    let tokenizer_path = repo.get(model_def.tokenizer_file).await.map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
         message: format!("Failed to fetch tokenizer: {}", e),
         details: None, suggested_actions: Some(vec!["Check internet connection".to_string()])
     })?;
     
     report("Checking/Downloading config...", 0.2);
-    println!("[Candle] Fetching config: {}", CONFIG_FILE);
-    let config_path = repo.get(CONFIG_FILE).await.map_err(|e| AIError {
+    println!("[Candle] Fetching config: {}", model_def.config_file);
+    let config_path = repo.get(model_def.config_file).await.map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
         message: format!("Failed to fetch config: {}", e),
         details: None, suggested_actions: None
     })?;
     
-    report("Downloading model weights part 1/2 (2.7B params)...", 0.3);
-    println!("[Candle] Fetching model part 1: {} (this may take several minutes for first download)", MODEL_FILE);
-    let model_path = repo.get(MODEL_FILE).await.map_err(|e| AIError {
-        error_type: AIErrorType::NetworkError,
-        message: format!("Failed to fetch model weights part 1: {}", e),
-        details: None, suggested_actions: None
-    })?;
-    
-    report("Downloading model weights part 2/2...", 0.6);
-    println!("[Candle] Fetching model part 2: {}", MODEL_FILE_2);
-    let model_path_2 = repo.get(MODEL_FILE_2).await.map_err(|e| AIError {
-        error_type: AIErrorType::NetworkError,
-        message: format!("Failed to fetch model weights part 2: {}", e),
-        details: None, suggested_actions: None
-    })?;
+    report("Downloading model weights...", 0.3);
+    let mut model_paths = Vec::new();
+    for (i, file) in model_def.model_files.iter().enumerate() {
+        println!("[Candle] Fetching model file {}/{}: {}", i+1, model_def.model_files.len(), file);
+        let path = repo.get(file).await.map_err(|e| AIError {
+            error_type: AIErrorType::NetworkError,
+            message: format!("Failed to fetch model file {}: {}", file, e),
+            details: None, suggested_actions: None
+        })?;
+        model_paths.push(path);
+    }
     
     report("Ready", 1.0);
-    Ok((model_path, model_path_2, config_path, tokenizer_path))
+    Ok((model_paths, config_path, tokenizer_path))
 }
 
-pub async fn download_embedded_model(sender: mpsc::Sender<DownloadStatus>) -> Result<(), String> {
-    match ensure_model_files(Some(sender)).await {
+pub async fn download_embedded_model(model_id: String, sender: mpsc::Sender<DownloadStatus>) -> Result<(), String> {
+    match ensure_model_files(&model_id, Some(sender)).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e.message),
     }
 }
 
 pub async fn check_candle_availability() -> bool {
-    let api = Api::new().ok();
-    if let Some(api) = api {
-        let repo = api.repo(Repo::new(MODEL_REPO.to_string(), RepoType::Model));
-        // Simple existence check by trying to get path without downloading?
-        // hf-hub creates a local cache. We can check if files exist in cache.
-        // For now, let's assume if we can get the tokenizer quickly, it's likely there.
-        // A better check would be to look at the filesystem cache dir.
-        return true; 
-    }
-    false
+    // Just check if HF API is accessible
+    Api::new().is_ok()
 }
 
-// Simplified load: returns config and paths, model is created per-request
-async fn get_model_paths() -> Result<(PathBuf, PathBuf, PathBuf, PathBuf), AIError> {
-    let (model_path, model_path_2, config_path, tokenizer_path) = ensure_model_files(None).await?;
-    Ok((model_path, model_path_2, config_path, tokenizer_path))
-}
+
 
 pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
-    let (model_path, model_path_2, config_path, tokenizer_path) = get_model_paths().await?;
+    // Extract model ID from request
+    let model_id = &request.model_config.model_id;
+    
+    // Get model definition
+    let registry = get_model_registry();
+    let model_def = registry.get(model_id.as_str()).ok_or_else(|| AIError {
+        error_type: AIErrorType::InvalidConfiguration,
+        message: format!("Unknown model ID: {}", model_id),
+        details: None,
+        suggested_actions: Some(vec!["Select a supported embedded model".to_string()]),
+    })?;
+    
+    // Download/get model files
+    let (model_paths, config_path, tokenizer_path) = ensure_model_files(model_id, None).await?;
     let device = Device::Cpu;
 
     let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| AIError {
@@ -126,19 +178,35 @@ pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequ
     let config: QwenConfig = serde_json::from_str(&config_str).unwrap();
 
     // Create fresh model instance to ensure empty KV cache
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model_path, model_path_2], DType::F32, &device).unwrap() };
+    let model_path_refs: Vec<&PathBuf> = model_paths.iter().collect();
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&model_path_refs, DType::F32, &device).unwrap() };
     let mut model = QwenModel::new(&config, vb).unwrap();
 
-    // Phi-2 uses simple Instruct format (no special tokens needed)
+    // Build prompt based on model's format
     let mut prompt = String::new();
-    for msg in &request.messages {
-        match msg.role {
-            MessageRole::System => prompt.push_str(&format!("Instruct: {}\n", msg.content)),
-            MessageRole::User => prompt.push_str(&format!("Instruct: {}\n", msg.content)),
-            MessageRole::Assistant => prompt.push_str(&format!("Output: {}\n", msg.content)),
-        }
+    match model_def.prompt_format {
+        PromptFormat::ChatML => {
+            for msg in &request.messages {
+                let role = match msg.role {
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::System => "system",
+                };
+                prompt.push_str(&format!("<|im_start|>{}\n{}<|im_end|>\n", role, msg.content));
+            }
+            prompt.push_str("<|im_start|>assistant\n");
+        },
+        PromptFormat::Instruct => {
+            for msg in &request.messages {
+                match msg.role {
+                    MessageRole::System => prompt.push_str(&format!("Instruct: {}\n", msg.content)),
+                    MessageRole::User => prompt.push_str(&format!("Instruct: {}\n", msg.content)),
+                    MessageRole::Assistant => prompt.push_str(&format!("Output: {}\n", msg.content)),
+                }
+            }
+            prompt.push_str("Output:");
+        },
     }
-    prompt.push_str("Output:");
 
     let tokens = tokenizer.encode(prompt, true).map_err(|e| AIError {
         error_type: AIErrorType::InferenceFailed,
@@ -181,8 +249,8 @@ pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequ
              let _ = window.emit("ai-response-chunk", &text);
         }
 
-        // Check stop (EOS for Phi-2)
-        if next_token == 50256 { 
+        // Check stop (EOS - use model's defined tokens)
+        if model_def.eos_tokens.contains(&next_token) { 
             break;
         }
     }
@@ -214,29 +282,8 @@ pub async fn get_candle_status() -> ProviderStatus {
         provider: ModelProvider::Candle,
         is_available: available,
         version: Some("0.4.1".to_string()),
-        available_models: if available {
-            vec![ModelConfig {
-                id: "embedded-phi2".to_string(),
-                name: "Phi-2 (Embedded)".to_string(),
-                provider: ModelProvider::Candle,
-                model_id: "phi-2".to_string(),
-                parameters: ModelParameters {
-                    temperature: 0.7,
-                    top_p: 0.9,
-                    max_tokens: 512,
-                    stream: true,
-                    stop_sequences: Some(vec!["Instruct:".to_string()]),
-                    context_window: Some(2048),
-                },
-                endpoint: None,
-                api_key: None,
-                is_available: true,
-                size_bytes: Some(1536 * 1024 * 1024), // ~1.5GB
-                recommended_for: vec![AIMode::Agent, AIMode::QA],
-            }]
-        } else {
-            vec![]
-        },
+        // Models are now defined in frontend KNOWN_MODELS to avoid duplicates
+        available_models: vec![],
         error: None,
     }
 }

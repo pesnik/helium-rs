@@ -99,7 +99,7 @@ pub async fn check_provider_availability(
 
 /// Download the embedded model (streaming progress)
 #[command]
-pub async fn download_model(window: tauri::Window) -> Result<(), String> {
+pub async fn download_model(window: tauri::Window, model_id: String) -> Result<(), String> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
     
     // Spawn background task
@@ -109,5 +109,5 @@ pub async fn download_model(window: tauri::Window) -> Result<(), String> {
         }
     });
 
-    download_embedded_model(tx).await
+    download_embedded_model(model_id, tx).await
 }
