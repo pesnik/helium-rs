@@ -20,7 +20,10 @@ import { AISettingsPanel } from './AISettingsPanel';
 import {
     Settings24Regular,
     LockClosed24Filled,
+    ArrowDownload24Regular,
 } from '@fluentui/react-icons';
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { AIChat } from './AIChat';
 import { ModeSelector } from './ModeSelector';
 import { ModelSelector } from './ModelSelector';
@@ -115,6 +118,42 @@ export const AIPanel = ({
     const [selectedModelId, setSelectedModelId] = useState<string | undefined>();
     const [showSettings, setShowSettings] = useState(false);
 
+    // Download state
+    const [downloadProgress, setDownloadProgress] = useState<{ status: string; progress: number; modelId: string } | undefined>(undefined);
+
+    // Listen for download progress
+    useEffect(() => {
+        const unlisten = listen('model-download-progress', (event: any) => {
+            const payload = event.payload as { status: string; progress: number };
+            setDownloadProgress({ ...payload, modelId: 'qwen2.5-coder:0.5b' }); // Assume currently downloading embedded model
+
+            // Refresh models when done
+            if (payload.progress >= 1.0) {
+                setTimeout(() => {
+                    setDownloadProgress(undefined);
+                    // Trigger re-fetch of status to make the model available
+                    // We can't easily call initialize() here but we can trigger a state update or reload
+                    window.location.reload(); // Simple brute force for now to ensure state is fresh, or ideally refetch
+                }, 1000);
+            }
+        });
+
+        return () => {
+            unlisten.then(f => f());
+        };
+    }, []);
+
+    const handleDownloadModel = async (modelId: string, provider: ModelProvider) => {
+        if (provider === ModelProvider.Candle) {
+            try {
+                await invoke('download_model');
+            } catch (error) {
+                console.error('Download failed:', error);
+                alert('Failed to start download: ' + error);
+            }
+        }
+    };
+
     // Initialize: Load available models
     useEffect(() => {
         async function initialize() {
@@ -170,15 +209,52 @@ export const AIPanel = ({
                 throw new Error('No model selected');
             }
 
+            // Enable streaming for all providers (Candle + Ollama)
+            // Ideally we check if modelConfig.parameters.stream is true, but we know our backend implementations stream.
+            const isStreaming = true;
+            let assistantMsgId = '';
+
+            if (isStreaming) {
+                // Create placeholder for assistant response ONLY if streaming
+                assistantMsgId = `msg-${Date.now()}-ai`;
+                const assistantMessage: ChatMessage = {
+                    id: assistantMsgId,
+                    role: MessageRole.Assistant,
+                    content: '',
+                    timestamp: Date.now(),
+                };
+                setMessages((prev) => [...prev, assistantMessage]);
+            }
+
+            let streamedContent = '';
+
             const response = await runInference({
                 sessionId: 'default', // TODO: Implement session management
                 modelConfig: selectedModel,
                 messages: [...messages, userMessage],
                 fsContext,
                 mode,
-            });
+            }, isStreaming ? (chunk) => {
+                // Handle streaming chunk
+                streamedContent += chunk;
+                setMessages((prev) => prev.map(msg =>
+                    msg.id === assistantMsgId
+                        ? { ...msg, content: streamedContent }
+                        : msg
+                ));
+            } : undefined);
 
-            setMessages((prev) => [...prev, response.message]);
+            if (isStreaming) {
+                // Final update for streaming (ensure exact final state)
+                setMessages((prev) => prev.map(msg =>
+                    msg.id === assistantMsgId
+                        ? response.message
+                        : msg
+                ));
+            } else {
+                // Non-streaming: Add the full message now
+                setMessages((prev) => [...prev, response.message]);
+            }
         } catch (error: any) {
             console.error('Inference failed:', error);
 
@@ -198,6 +274,11 @@ export const AIPanel = ({
         // Optionally clear messages when switching modes
         // setMessages([]);
     };
+
+    // Check if we are using a streaming provider
+    const selectedModel = availableModels.find(m => m.id === selectedModelId);
+    // All providers now stream
+    const isStreamingProvider = true;
 
     if (isInitializing) {
         return (
@@ -263,17 +344,56 @@ export const AIPanel = ({
                 {availableModels.length === 0 ? (
                     <div className={styles.loadingContainer}>
                         <Text weight="semibold" size={400}>No AI models detected</Text>
-                        <div style={{ textAlign: 'center', padding: '0 20px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
-                            <Text>
-                                To use <strong>QA Mode</strong>, you need a local AI engine.
+
+                        {/* EMBEDDED MODEL DOWNLOAD OPTION */}
+                        <div style={{
+                            padding: '16px',
+                            background: tokens.colorNeutralBackground2,
+                            borderRadius: '8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px',
+                            alignItems: 'center',
+                            maxWidth: '90%',
+                            border: `1px solid ${tokens.colorBrandStroke1}`
+                        }}>
+                            <Text weight="semibold">Get Started with Embedded AI</Text>
+                            <Text align="center" size={200}>
+                                Download the built-in AI engine (approx. 1GB) to enable smart features locally without extra setup.
                             </Text>
+
+                            {downloadProgress ? (
+                                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <div style={{ height: '4px', background: tokens.colorNeutralStroke1, borderRadius: '2px', overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${downloadProgress.progress * 100}%`, background: tokens.colorBrandBackground }} />
+                                    </div>
+                                    <Text size={200} align="center">{downloadProgress.status} ({Math.round(downloadProgress.progress * 100)}%)</Text>
+                                </div>
+                            ) : (
+                                <Button
+                                    appearance="primary"
+                                    icon={<ArrowDownload24Regular />}
+                                    onClick={() => handleDownloadModel('qwen2.5-coder:0.5b', ModelProvider.Candle)}
+                                >
+                                    Download Embedded AI
+                                </Button>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '80%' }}>
+                            <div style={{ flex: 1, height: '1px', background: tokens.colorNeutralStroke1 }} />
+                            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>OR USE OLLAMA</Text>
+                            <div style={{ flex: 1, height: '1px', background: tokens.colorNeutralStroke1 }} />
+                        </div>
+
+                        <div style={{ textAlign: 'center', padding: '0 20px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
                             <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                                Ollama is a free tool that runs powerful LLMs locally on your machine, ensuring total privacy.
+                                Advanced users can run larger models via Ollama.
                             </Text>
                         </div>
 
                         <Button
-                            appearance="primary"
+                            appearance="outline"
                             onClick={() => window.open('https://ollama.com', '_blank')}
                         >
                             Download Ollama
@@ -288,6 +408,7 @@ export const AIPanel = ({
                         messages={messages}
                         onSendMessage={handleSendMessage}
                         isLoading={isLoading}
+                        isStreaming={isLoading && isStreamingProvider} // Only treat as streaming if loading AND provider matches
                         loadingStatus="Thinking..."
                         placeholder={
                             mode === AIMode.Summarize
@@ -307,6 +428,8 @@ export const AIPanel = ({
                     onSelectModel={setSelectedModelId}
                     onClose={() => setShowSettings(false)}
                     open={showSettings}
+                    downloadProgress={downloadProgress}
+                    onDownloadModel={handleDownloadModel}
                 />
             )}
         </div>

@@ -6,6 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
     ModelConfig,
     ModelProvider,
@@ -171,9 +172,21 @@ export async function runInference(
 
     // For backend providers (Ollama, OpenAI-compatible)
     try {
-        return await invoke<InferenceResponse>('run_ai_inference', {
+        let unlisten: (() => void) | undefined;
+
+        // Setup streaming listener if onChunk callback is provided
+        if (onChunk) {
+            unlisten = await listen<string>('ai-response-chunk', (event) => {
+                onChunk(event.payload);
+            });
+        }
+
+        const response = await invoke<InferenceResponse>('run_ai_inference', {
             request: requestWithSystem,
         });
+
+        if (unlisten) unlisten();
+        return response;
     } catch (error: any) {
         console.error('Inference failed:', error);
         throw new Error(error || 'Inference failed');

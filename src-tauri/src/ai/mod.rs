@@ -15,6 +15,7 @@ pub enum ModelProvider {
     OpenAICompatible,
     LlamaCpp,
     MLX,
+    Candle,
 }
 
 /// AI operation modes

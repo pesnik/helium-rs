@@ -28,7 +28,9 @@ pub fn run() {
         ai_commands::get_ai_providers_status,
         ai_commands::get_provider_models,
         ai_commands::run_ai_inference,
-        ai_commands::check_provider_availability
+        ai_commands::run_ai_inference,
+        ai_commands::check_provider_availability,
+        ai_commands::download_model
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

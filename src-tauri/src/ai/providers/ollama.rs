@@ -9,6 +9,9 @@ use crate::ai::{
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
+use tauri::Emitter;
+use std::io::BufRead; 
+use bytes::Buf;
 
 /// Default Ollama endpoint
 const DEFAULT_OLLAMA_ENDPOINT: &str = "http://127.0.0.1:11434";
@@ -146,7 +149,7 @@ pub async fn get_ollama_models(endpoint: Option<&str>) -> Result<Vec<ModelConfig
 }
 
 /// Run inference with Ollama
-pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
+pub async fn run_ollama_inference(window: tauri::Window, request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
     let start_time = Instant::now();
 
     let endpoint = request
@@ -157,8 +160,13 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
 
     let url = format!("{}/api/chat", endpoint);
 
-    // Convert messages to Ollama format
     // Convert messages to Ollama format and inject context
+    // ... (context injection logic remains same, just copied for brevity or assumed helper)
+    // Actually I need to preserve the complex context injection logic.
+    // I will copy the logic if I replace the whole function.
+    // To minimize replacement size, I will reuse existing logic structure but change the request and response handling.
+    
+    // RE-IMPLEMENTING CONTEXT LOGIC (Truncated for tool call, I will perform surgically)
     let mut ollama_messages: Vec<OllamaMessage> = Vec::new();
 
     // 1. Inject Context if available (AND system message not already present)
@@ -234,7 +242,7 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
     let ollama_request = OllamaChatRequest {
         model: request.model_config.model_id.clone(),
         messages: ollama_messages,
-        stream: false, // For now, we'll use non-streaming mode
+        stream: true,
         options: OllamaOptions {
             temperature: request.model_config.parameters.temperature,
             top_p: request.model_config.parameters.top_p,
@@ -268,41 +276,74 @@ pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<Inferenc
         });
     }
 
-    let ollama_response: OllamaChatResponse = response.json().await.map_err(|e| AIError {
-        error_type: AIErrorType::InferenceFailed,
-        message: format!("Failed to parse Ollama response: {}", e),
-        details: None,
-        suggested_actions: None,
-    })?;
+    // Process streaming response
+    let mut stream = response.bytes_stream();
+    use futures_util::StreamExt; // Ensure this feature is available or use loop
+    
+    let mut full_content = String::new();
+    let mut final_usage: Option<TokenUsage> = None;
+    let mut is_done = false;
+
+    // We need to parse line by line, but bytes_stream returns chunks.
+    // Simple approach: Accumulate bytes, split by newline, process lines.
+    let mut buffer = Vec::new();
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| AIError {
+            error_type: AIErrorType::NetworkError,
+            message: format!("Stream error: {}", e),
+            details: None,
+            suggested_actions: None,
+        })?;
+        
+        buffer.extend_from_slice(&chunk);
+
+        // Process full lines in buffer
+        while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes = buffer.drain(..=pos).collect::<Vec<u8>>(); // Include newline
+            let line = String::from_utf8_lossy(&line_bytes);
+            let line = line.trim();
+            if line.is_empty() { continue; }
+
+            if let Ok(ollama_msg) = serde_json::from_str::<OllamaChatResponse>(line) {
+                let content = ollama_msg.message.content;
+                if !content.is_empty() {
+                    full_content.push_str(&content);
+                    let _ = window.emit("ai-response-chunk", &content);
+                }
+
+                if ollama_msg.done {
+                    is_done = true;
+                    if let (Some(prompt_eval), Some(eval)) = (ollama_msg.prompt_eval_count, ollama_msg.eval_count) {
+                        final_usage = Some(TokenUsage {
+                            prompt_tokens: prompt_eval,
+                            completion_tokens: eval,
+                            total_tokens: prompt_eval + eval,
+                        });
+                    }
+                }
+            } else {
+                eprintln!("Failed to parse JSON: {}", line);
+            }
+        }
+    }
 
     let inference_time_ms = start_time.elapsed().as_millis() as u64;
 
     let response_message = ChatMessage {
         id: format!("msg-{}", chrono::Utc::now().timestamp_millis()),
         role: MessageRole::Assistant,
-        content: ollama_response.message.content,
+        content: full_content,
         timestamp: chrono::Utc::now().timestamp_millis(),
         context_paths: None,
         is_streaming: None,
         error: None,
     };
 
-    let usage = if let (Some(prompt_tokens), Some(completion_tokens)) =
-        (ollama_response.prompt_eval_count, ollama_response.eval_count)
-    {
-        Some(TokenUsage {
-            prompt_tokens,
-            completion_tokens,
-            total_tokens: prompt_tokens + completion_tokens,
-        })
-    } else {
-        None
-    };
-
     Ok(InferenceResponse {
         message: response_message,
-        is_complete: ollama_response.done,
-        usage,
+        is_complete: is_done,
+        usage: final_usage,
         inference_time_ms: Some(inference_time_ms),
     })
 }

@@ -201,6 +201,7 @@ export function AISettingsPanel({
         switch (provider) {
             case ModelProvider.TransformerJS: return <GlobeRegular />;
             case ModelProvider.Ollama: return <BotRegular />;
+            case ModelProvider.Candle: return <BotRegular />; // Use Bot icon for now
             default: return <CubeRegular />;
         }
     };
@@ -231,11 +232,19 @@ export function AISettingsPanel({
                                             <Label weight="semibold">Provider</Label>
                                             <div style={{ marginTop: '8px' }}>
                                                 <Dropdown
-                                                    value={selectedProvider === 'transformerjs' ? 'Transformer.js (In-Browser)' : selectedProvider === 'ollama' ? 'Ollama (Local Server)' : 'OpenAI Compatible'}
+                                                    value={
+                                                        selectedProvider === 'transformerjs' ? 'Transformer.js (In-Browser)' :
+                                                            selectedProvider === 'ollama' ? 'Ollama (Local Server)' :
+                                                                selectedProvider === 'candle' ? 'Embedded AI (Rust/Candle)' :
+                                                                    'OpenAI Compatible'
+                                                    }
                                                     selectedOptions={[selectedProvider]}
                                                     onOptionSelect={(_, data) => setSelectedProvider(data.optionValue as ModelProvider)}
                                                     style={{ width: '100%' }}
                                                 >
+                                                    <Option value="candle" text="Embedded AI (Rust/Candle)">
+                                                        <BotRegular style={{ marginRight: '8px' }} /> Embedded AI (Recommended)
+                                                    </Option>
                                                     <Option value="transformerjs" text="Transformer.js (In-Browser)">
                                                         <GlobeRegular style={{ marginRight: '8px' }} /> Transformer.js (In-Browser)
                                                     </Option>
@@ -303,13 +312,21 @@ export function AISettingsPanel({
                                                                                 icon={<ArrowDownload24Regular />}
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
+
+                                                                                    if (model.provider === ModelProvider.Candle) {
+                                                                                        if (onDownloadModel) {
+                                                                                            onDownloadModel(model.modelId, ModelProvider.Candle);
+                                                                                        }
+                                                                                        return;
+                                                                                    }
+
                                                                                     const command = `ollama pull ${model.modelId}`;
                                                                                     navigator.clipboard.writeText(command);
                                                                                     alert(`Command copied to clipboard!\n\nRun this in your terminal:\n${command}\n\nThen refresh the app.`);
                                                                                 }}
-                                                                                title="Copy install command"
+                                                                                title={model.provider === ModelProvider.Candle ? "Download Embedded Model" : "Copy install command"}
                                                                             >
-                                                                                Get
+                                                                                {model.provider === ModelProvider.Candle ? "Download" : "Get"}
                                                                             </Button>
                                                                         </div>
                                                                     )}
@@ -320,7 +337,7 @@ export function AISettingsPanel({
                                                                     <div className={styles.progressContainer}>
                                                                         <ProgressBar value={downloadProgress?.progress ? downloadProgress.progress / 100 : undefined} />
                                                                         <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
-                                                                            {downloadProgress?.progress ? `${Math.round(downloadProgress.progress)}%` : 'Starting...'}
+                                                                            {downloadProgress?.progress ? (downloadProgress.progress <= 1.0 ? `${Math.round(downloadProgress.progress * 100)}%` : `${Math.round(downloadProgress.progress)}%`) : 'Starting...'}
                                                                         </Text>
                                                                     </div>
                                                                 ) : (
@@ -339,9 +356,14 @@ export function AISettingsPanel({
                                             <Button
                                                 style={{ marginTop: '16px', width: '100%' }}
                                                 icon={<ArrowDownload24Regular />}
-                                                disabled={selectedProvider === 'transformerjs'}
+                                                disabled={selectedProvider === 'transformerjs' || selectedProvider === 'candle'}
+                                                onClick={() => {
+                                                    if (selectedProvider === 'candle' && onDownloadModel) {
+                                                        onDownloadModel('qwen2.5-coder:0.5b', ModelProvider.Candle); // Trigger download
+                                                    }
+                                                }}
                                             >
-                                                Download New Model from Hub
+                                                {selectedProvider === 'candle' ? 'Download Embedded Model (Automated)' : 'Download New Model from Hub'}
                                             </Button>
                                         </div>
                                     </>

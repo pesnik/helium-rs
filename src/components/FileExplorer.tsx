@@ -482,7 +482,7 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                     />
                 </Tooltip>
 
-                <div style={{ width: '1px', height: '20px', background: '#333', margin: '0 4px' }} />
+                <div style={{ width: '1px', height: '20px', background: '#333' }} />
 
                 <Tooltip content="Toggle AI Assistant" relationship="label">
                     <Button

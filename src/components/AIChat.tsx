@@ -161,6 +161,7 @@ interface AIChatProps {
     messages: ChatMessage[];
     onSendMessage: (content: string) => void;
     isLoading?: boolean;
+    isStreaming?: boolean;
     placeholder?: string;
     loadingStatus?: React.ReactNode;
 }
@@ -169,6 +170,7 @@ export function AIChat({
     messages,
     onSendMessage,
     isLoading = false,
+    isStreaming = false,
     placeholder = 'Ask about your files...',
     loadingStatus = 'Thinking...',
 }: AIChatProps) {
@@ -245,7 +247,7 @@ export function AIChat({
                                 </div>
                             </div>
                         ))}
-                        {isLoading && (
+                        {isLoading && !isStreaming && (
                             <div className={styles.messageWrapper}>
                                 <div className={`${styles.messageIcon} ${styles.assistantIcon}`}>
                                     <Bot24Regular />
@@ -277,6 +279,6 @@ export function AIChat({
                     disabled={!inputValue.trim() || isLoading}
                 />
             </div>
-        </div>
+        </div >
     );
 }

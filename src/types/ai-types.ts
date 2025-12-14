@@ -13,6 +13,7 @@ export enum ModelProvider {
     OpenAICompatible = 'openai-compatible',
     LlamaCpp = 'llamacpp',
     MLX = 'mlx',
+    Candle = 'candle',
 }
 
 /**
@@ -205,8 +206,10 @@ export interface ModelAvailability {
     config: ModelConfig;
     /** Whether the model is installed/available */
     isAvailable: boolean;
-    /** Download progress (0-100) if downloading */
+    /** Download progress (0-1.0) if downloading */
     downloadProgress?: number;
+    /** Current download status message */
+    downloadStatus?: string;
     /** Error message if unavailable */
     error?: string;
 }
