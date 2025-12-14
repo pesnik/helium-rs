@@ -458,9 +458,9 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                         onClick={() => selectedItem && handleNavigate(selectedItem.path)}
                     />
                 </Tooltip>
-                <Tooltip content="Up" relationship="label">
+                {/* <Tooltip content="Up" relationship="label">
                     <Button icon={<ArrowUpRegular />} onClick={handleUp} />
-                </Tooltip>
+                </Tooltip> */}
                 <Tooltip content="Refresh" relationship="label">
                     <Button icon={<ArrowClockwiseRegular />} onClick={() => fetchData(state.path, true)} />
                 </Tooltip>
