@@ -1,0 +1,265 @@
+// Ollama Provider
+//
+// Integration with Ollama for local LLM inference via HTTP API.
+
+use crate::ai::{
+    AIError, AIErrorType, AIMode, ChatMessage, InferenceRequest, InferenceResponse, MessageRole,
+    ModelConfig, ModelParameters, ModelProvider, ProviderStatus, TokenUsage,
+};
+use reqwest;
+use serde::{Deserialize, Serialize};
+use std::time::Instant;
+
+/// Default Ollama endpoint
+const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434";
+
+/// Ollama chat request format
+#[derive(Debug, Serialize)]
+struct OllamaChatRequest {
+    model: String,
+    messages: Vec<OllamaMessage>,
+    stream: bool,
+    options: OllamaOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OllamaMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaOptions {
+    temperature: f32,
+    top_p: f32,
+    num_predict: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop: Option<Vec<String>>,
+}
+
+/// Ollama chat response format
+#[derive(Debug, Deserialize)]
+struct OllamaChatResponse {
+    message: OllamaMessage,
+    done: bool,
+    #[serde(default)]
+    total_duration: Option<u64>,
+    #[serde(default)]
+    prompt_eval_count: Option<u32>,
+    #[serde(default)]
+    eval_count: Option<u32>,
+}
+
+/// Ollama list models response
+#[derive(Debug, Deserialize)]
+struct OllamaListResponse {
+    models: Vec<OllamaModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModel {
+    name: String,
+    size: u64,
+    modified_at: String,
+}
+
+/// Check if Ollama is available
+pub async fn check_ollama_availability(endpoint: Option<&str>) -> Result<bool, AIError> {
+    let url = format!("{}/api/tags", endpoint.unwrap_or(DEFAULT_OLLAMA_ENDPOINT));
+
+    match reqwest::get(&url).await {
+        Ok(response) => Ok(response.status().is_success()),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Get available Ollama models
+pub async fn get_ollama_models(endpoint: Option<&str>) -> Result<Vec<ModelConfig>, AIError> {
+    let url = format!("{}/api/tags", endpoint.unwrap_or(DEFAULT_OLLAMA_ENDPOINT));
+
+    let response = reqwest::get(&url).await.map_err(|e| AIError {
+        error_type: AIErrorType::NetworkError,
+        message: format!("Failed to connect to Ollama: {}", e),
+        details: None,
+        suggested_actions: Some(vec![
+            "Make sure Ollama is running".to_string(),
+            "Check if Ollama is installed".to_string(),
+            "Verify the endpoint URL".to_string(),
+        ]),
+    })?;
+
+    let list: OllamaListResponse = response.json().await.map_err(|e| AIError {
+        error_type: AIErrorType::ProviderUnavailable,
+        message: format!("Failed to parse Ollama response: {}", e),
+        details: None,
+        suggested_actions: None,
+    })?;
+
+    let models = list
+        .models
+        .into_iter()
+        .map(|m| {
+            // Determine recommended use cases based on model name
+            let recommended_for = if m.name.contains("3b") || m.name.contains("small") {
+                vec![AIMode::Summarize, AIMode::QA]
+            } else if m.name.contains("7b") {
+                vec![
+                    AIMode::QA,
+                    AIMode::Agent,
+                    AIMode::Summarize,
+                ]
+            } else {
+                vec![AIMode::Agent, AIMode::QA]
+            };
+
+            ModelConfig {
+                id: format!("ollama-{}", m.name.replace(':', "-")),
+                name: m.name.clone(),
+                provider: ModelProvider::Ollama,
+                model_id: m.name,
+                parameters: ModelParameters {
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    max_tokens: 2048,
+                    stream: true,
+                    stop_sequences: None,
+                    context_window: Some(4096),
+                },
+                endpoint: None,
+                api_key: None,
+                is_available: true,
+                size_bytes: Some(m.size),
+                recommended_for,
+            }
+        })
+        .collect();
+
+    Ok(models)
+}
+
+/// Run inference with Ollama
+pub async fn run_ollama_inference(request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
+    let start_time = Instant::now();
+
+    let endpoint = request
+        .model_config
+        .endpoint
+        .as_deref()
+        .unwrap_or(DEFAULT_OLLAMA_ENDPOINT);
+
+    let url = format!("{}/api/chat", endpoint);
+
+    // Convert messages to Ollama format
+    let ollama_messages: Vec<OllamaMessage> = request
+        .messages
+        .iter()
+        .map(|m| OllamaMessage {
+            role: match m.role {
+                MessageRole::User => "user".to_string(),
+                MessageRole::Assistant => "assistant".to_string(),
+                MessageRole::System => "system".to_string(),
+            },
+            content: m.content.clone(),
+        })
+        .collect();
+
+    let ollama_request = OllamaChatRequest {
+        model: request.model_config.model_id.clone(),
+        messages: ollama_messages,
+        stream: false, // For now, we'll use non-streaming mode
+        options: OllamaOptions {
+            temperature: request.model_config.parameters.temperature,
+            top_p: request.model_config.parameters.top_p,
+            num_predict: request.model_config.parameters.max_tokens as i32,
+            stop: request.model_config.parameters.stop_sequences.clone(),
+        },
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&ollama_request)
+        .send()
+        .await
+        .map_err(|e| AIError {
+            error_type: AIErrorType::NetworkError,
+            message: format!("Failed to send request to Ollama: {}", e),
+            details: None,
+            suggested_actions: Some(vec!["Check Ollama is running".to_string()]),
+        })?;
+
+    if !response.status().is_success() {
+        return Err(AIError {
+            error_type: AIErrorType::InferenceFailed,
+            message: format!("Ollama returned error: {}", response.status()),
+            details: None,
+            suggested_actions: Some(vec![
+                "Check if the model exists".to_string(),
+                "Try pulling the model with 'ollama pull'".to_string(),
+            ]),
+        });
+    }
+
+    let ollama_response: OllamaChatResponse = response.json().await.map_err(|e| AIError {
+        error_type: AIErrorType::InferenceFailed,
+        message: format!("Failed to parse Ollama response: {}", e),
+        details: None,
+        suggested_actions: None,
+    })?;
+
+    let inference_time_ms = start_time.elapsed().as_millis() as u64;
+
+    let response_message = ChatMessage {
+        id: format!("msg-{}", chrono::Utc::now().timestamp_millis()),
+        role: MessageRole::Assistant,
+        content: ollama_response.message.content,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        context_paths: None,
+        is_streaming: None,
+        error: None,
+    };
+
+    let usage = if let (Some(prompt_tokens), Some(completion_tokens)) =
+        (ollama_response.prompt_eval_count, ollama_response.eval_count)
+    {
+        Some(TokenUsage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+        })
+    } else {
+        None
+    };
+
+    Ok(InferenceResponse {
+        message: response_message,
+        is_complete: ollama_response.done,
+        usage,
+        inference_time_ms: Some(inference_time_ms),
+    })
+}
+
+/// Get Ollama provider status
+pub async fn get_ollama_status(endpoint: Option<&str>) -> ProviderStatus {
+    let is_available = check_ollama_availability(endpoint).await.unwrap_or(false);
+
+    let (available_models, error) = if is_available {
+        match get_ollama_models(endpoint).await {
+            Ok(models) => (models, None),
+            Err(e) => (vec![], Some(e.message)),
+        }
+    } else {
+        (
+            vec![],
+            Some("Ollama is not running or not installed".to_string()),
+        )
+    };
+
+    ProviderStatus {
+        provider: ModelProvider::Ollama,
+        is_available,
+        version: None, // Could be fetched from /api/version
+        available_models,
+        error,
+    }
+}

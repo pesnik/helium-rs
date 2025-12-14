@@ -1,5 +1,7 @@
 mod scanner;
 mod commands;
+mod ai;
+mod ai_commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,7 +24,11 @@ pub fn run() {
         commands::open_file,
         commands::delete_item,
         commands::get_drives,
-        commands::cancel_scan
+        commands::cancel_scan,
+        ai_commands::get_ai_providers_status,
+        ai_commands::get_provider_models,
+        ai_commands::run_ai_inference,
+        ai_commands::check_provider_availability
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

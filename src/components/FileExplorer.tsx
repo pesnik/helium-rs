@@ -47,6 +47,7 @@ import {
     DataPieRegular,
     InfoRegular,
     DismissRegular,
+    SparkleRegular,
 } from '@fluentui/react-icons';
 import { DiskUsageChart } from './DiskUsageChart';
 import { invoke } from '@tauri-apps/api/core';
@@ -151,7 +152,12 @@ const ScanProgressBanner = ({ progress, onCancel, speed }: {
     );
 };
 
-export const FileExplorer = () => {
+interface FileExplorerProps {
+    onToggleAI?: () => void;
+    isAIPanelOpen?: boolean;
+}
+
+export const FileExplorer = ({ onToggleAI, isAIPanelOpen }: FileExplorerProps) => {
     const styles = useStyles();
     const [state, setState] = React.useState<ExplorerState>({
         path: 'C:\\',
@@ -452,6 +458,17 @@ export const FileExplorer = () => {
                         icon={<DataPieRegular />}
                         appearance={showChart ? "primary" : "secondary"}
                         onClick={() => setShowChart(!showChart)}
+                    />
+                </Tooltip>
+
+                <div style={{ width: '1px', height: '20px', background: '#333', margin: '0 4px' }} />
+
+                <Tooltip content="Toggle AI Assistant" relationship="label">
+                    <Button
+                        icon={<SparkleRegular />}
+                        appearance={isAIPanelOpen ? "primary" : "subtle"}
+                        onClick={onToggleAI}
+                        disabled={!onToggleAI}
                     />
                 </Tooltip>
 
