@@ -25,6 +25,12 @@ import {
     MenuPopover,
     Spinner,
     Caption1,
+    Dialog,
+    DialogSurface,
+    DialogBody,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
 } from '@fluentui/react-components';
 import {
     FolderRegular,
@@ -170,6 +176,11 @@ export const FileExplorer = () => {
     const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
     const [contextMenuLocation, setContextMenuLocation] = React.useState({ x: 0, y: 0 });
     const [contextMenuItem, setContextMenuItem] = React.useState<FileNode | null>(null);
+
+    // Dialog State
+    const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+    const [propertiesDialogOpen, setPropertiesDialogOpen] = React.useState(false);
+    const [dialogItem, setDialogItem] = React.useState<FileNode | null>(null);
 
     // Compute the actually selected item object (only one supported for now)
     const selectedItem = React.useMemo(() => {
@@ -358,13 +369,20 @@ export const FileExplorer = () => {
         }
     };
 
-    const handleDelete = async (item: FileNode) => {
-        if (!confirm(`Are you sure you want to delete ${item.name}?`)) return;
+    const handleDeleteClick = (item: FileNode) => {
+        setDialogItem(item);
+        setDeleteDialogOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!dialogItem) return;
         try {
-            await invoke('delete_item', { path: item.path });
-            // Refresh current view
+            await invoke('delete_item', { path: dialogItem.path });
             fetchData(state.path, true);
+            setDeleteDialogOpen(false);
+            setDialogItem(null);
         } catch (e) {
+            console.error(`Failed to delete: ${e}`);
             alert(`Failed to delete: ${e}`);
         }
     };
@@ -389,10 +407,10 @@ export const FileExplorer = () => {
         }
     };
 
-    // Show basic properties of a file/folder in an alert dialog
-    const handleProperties = (item: FileNode) => {
-        const details = `Name: ${item.name}\nSize: ${formatSize(item.size)}\nModified: ${new Date(item.last_modified * 1000).toLocaleString()}`;
-        alert(details);
+    // Show basic properties of a file/folder in a dialog
+    const handlePropertiesClick = (item: FileNode) => {
+        setDialogItem(item);
+        setPropertiesDialogOpen(true);
     };
 
     const handleCancelScan = async () => {
@@ -536,15 +554,80 @@ export const FileExplorer = () => {
                                 <MenuItem icon={<FolderOpenRegular />} onClick={() => contextMenuItem && handleRevealInExplorer(contextMenuItem)}>
                                     Reveal in Explorer/Finder
                                 </MenuItem>
-                                <MenuItem icon={<InfoRegular />} onClick={() => contextMenuItem && handleProperties(contextMenuItem)} disabled={!contextMenuItem}>
+                                <MenuItem icon={<InfoRegular />} onClick={() => contextMenuItem && handlePropertiesClick(contextMenuItem)} disabled={!contextMenuItem}>
                                     Properties
                                 </MenuItem>
-                                <MenuItem icon={<DeleteRegular />} onClick={() => contextMenuItem && handleDelete(contextMenuItem)}>
+                                <MenuItem icon={<DeleteRegular />} onClick={() => contextMenuItem && handleDeleteClick(contextMenuItem)}>
                                     Delete
                                 </MenuItem>
                             </MenuList>
                         </MenuPopover>
                     </Menu>
+
+                    {/* Properties Dialog */}
+                    <Dialog open={propertiesDialogOpen} onOpenChange={(event, data) => setPropertiesDialogOpen(data.open)}>
+                        <DialogSurface>
+                            <DialogBody>
+                                <DialogTitle>Properties</DialogTitle>
+                                <DialogContent>
+                                    {dialogItem && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                {dialogItem.is_dir ? <FolderRegular fontSize={24} /> : <DocumentRegular fontSize={24} />}
+                                                <Text weight="semibold" size={500}>{dialogItem.name}</Text>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '5px' }}>
+                                                <Text weight="medium">Type:</Text>
+                                                <Text>{dialogItem.is_dir ? 'Folder' : 'File'}</Text>
+
+                                                <Text weight="medium">Location:</Text>
+                                                <Text style={{ wordBreak: 'break-all' }}>{dialogItem.path}</Text>
+
+                                                <Text weight="medium">Size:</Text>
+                                                <Text>{formatSize(dialogItem.size)} ({dialogItem.size.toLocaleString()} bytes)</Text>
+
+                                                <Text weight="medium">Modified:</Text>
+                                                <Text>{new Date(dialogItem.last_modified * 1000).toLocaleString()}</Text>
+
+                                                {dialogItem.is_dir && (
+                                                    <>
+                                                        <Text weight="medium">Contains:</Text>
+                                                        <Text>{dialogItem.file_count.toLocaleString()} Files</Text>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </DialogContent>
+                                <DialogActions>
+                                    <Button appearance="primary" onClick={() => setPropertiesDialogOpen(false)}>Close</Button>
+                                </DialogActions>
+                            </DialogBody>
+                        </DialogSurface>
+                    </Dialog>
+
+                    {/* Delete Confirmation Dialog */}
+                    <Dialog open={deleteDialogOpen} onOpenChange={(event, data) => setDeleteDialogOpen(data.open)}>
+                        <DialogSurface>
+                            <DialogBody>
+                                <DialogTitle>Confirm Delete</DialogTitle>
+                                <DialogContent>
+                                    <Text>
+                                        Are you sure you want to permanently delete <strong>{dialogItem?.name}</strong>?
+                                    </Text>
+                                    {dialogItem?.is_dir && (
+                                        <Text block style={{ marginTop: '10px', color: 'var(--colorPaletteRedForeground1)' }}>
+                                            Warning: This is a folder. All contents will be deleted.
+                                        </Text>
+                                    )}
+                                </DialogContent>
+                                <DialogActions>
+                                    <Button appearance="secondary" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+                                    <Button appearance="primary" style={{ backgroundColor: '#d13438', color: 'white' }} onClick={confirmDelete}>Delete</Button>
+                                </DialogActions>
+                            </DialogBody>
+                        </DialogSurface>
+                    </Dialog>
                 </div>
 
                 {/* Chart Panel */}
