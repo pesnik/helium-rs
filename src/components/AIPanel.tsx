@@ -201,9 +201,16 @@ export function AIPanel({ fsContext }: AIPanelProps) {
         <div className={styles.container}>
             <div className={styles.header}>
                 <div className={styles.headerTop}>
-                    <Text weight="semibold" size={400}>
-                        AI Assistant
-                    </Text>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <Text weight="semibold" size={400}>
+                            AI Assistant
+                        </Text>
+                        {fsContext?.currentPath && (
+                            <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
+                                {fsContext.currentPath}
+                            </Text>
+                        )}
+                    </div>
                     <div className={styles.headerActions}>
                         <Badge
                             className={styles.privacyBadge}

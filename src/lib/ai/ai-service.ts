@@ -199,15 +199,10 @@ function prepareMessages(request: InferenceRequest): ChatMessage[] {
     });
 
     // Check if system message already exists
-    const hasSystemMessage = request.messages.some(
+    const systemMessageIndex = request.messages.findIndex(
         (m) => m.role === MessageRole.System
     );
 
-    if (hasSystemMessage) {
-        return request.messages;
-    }
-
-    // Add system message at the beginning
     const systemMessage: ChatMessage = {
         id: `system-${Date.now()}`,
         role: MessageRole.System,
@@ -215,6 +210,15 @@ function prepareMessages(request: InferenceRequest): ChatMessage[] {
         timestamp: Date.now(),
     };
 
+    // If system message exists, replace it with the new one
+    // CAUSE: Previous logic returned early if system message existed, preserving old context
+    if (systemMessageIndex !== -1) {
+        const newMessages = [...request.messages];
+        newMessages[systemMessageIndex] = systemMessage;
+        return newMessages;
+    }
+
+    // Add system message at the beginning if not present
     return [systemMessage, ...request.messages];
 }
 

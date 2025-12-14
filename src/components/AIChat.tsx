@@ -22,6 +22,8 @@ import {
     Person24Regular,
 } from '@fluentui/react-icons';
 import { ChatMessage, MessageRole } from '@/types/ai-types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const useStyles = makeStyles({
     container: {
@@ -73,8 +75,48 @@ const useStyles = makeStyles({
         ...shorthands.padding('12px', '16px'),
         ...shorthands.borderRadius('16px'),
         wordWrap: 'break-word',
-        whiteSpace: 'pre-wrap', // Preserve newlines/lists from AI
+        // whiteSpace: 'pre-wrap', // Removed to let markdown handle spacing
         lineHeight: '1.5',
+        '& p': {
+            margin: 0,
+            marginBottom: '8px',
+        },
+        '& p:last-child': {
+            marginBottom: 0,
+        },
+        '& ul, & ol': {
+            marginTop: '4px',
+            marginBottom: '8px',
+            paddingLeft: '24px',
+        },
+        '& li': {
+            marginBottom: '4px',
+        },
+        '& pre': {
+            backgroundColor: tokens.colorNeutralBackground1, // Use a neutral background
+            padding: '8px',
+            borderRadius: '4px',
+            overflowX: 'auto',
+            marginTop: '8px',
+            marginBottom: '8px',
+            border: `1px solid ${tokens.colorNeutralStroke1}`,
+        },
+        '& code': {
+            fontFamily: 'monospace',
+            backgroundColor: 'rgba(0, 0, 0, 0.1)', // Subtle background for inline code
+            padding: '2px 4px',
+            borderRadius: '4px',
+        },
+        '& pre code': {
+            backgroundColor: 'transparent', // Reset for code blocks
+            padding: 0,
+        },
+        '& blockquote': {
+            borderLeft: `3px solid ${tokens.colorNeutralStroke1}`,
+            margin: '8px 0',
+            paddingLeft: '12px',
+            color: tokens.colorNeutralForeground2,
+        },
     },
     userBubble: {
         backgroundColor: tokens.colorBrandBackground,
@@ -193,7 +235,9 @@ export function AIChat({
                                             : styles.assistantBubble
                                             }`}
                                     >
-                                        <Text>{message.content}</Text>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {message.content}
+                                        </ReactMarkdown>
                                     </div>
                                     <div className={styles.timestamp}>
                                         {formatTimestamp(message.timestamp)}
