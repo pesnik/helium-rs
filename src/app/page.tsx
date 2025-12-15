@@ -50,12 +50,21 @@ export default function Home() {
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(400);
   const [isResizing, setIsResizing] = useState(false);
+  const [isManualResize, setIsManualResize] = useState(false);
+  const panelRef = React.useRef<HTMLDivElement>(null);
 
   // AI Context State
   const [fsContext, setFsContext] = useState<FileSystemContext | undefined>(undefined);
 
   const startResizing = React.useCallback(() => {
+    if (panelRef.current) {
+      setPanelWidth(panelRef.current.clientWidth);
+    }
     setIsResizing(true);
+    // Don't set manual resize immediately to avoid jump if just clicking without dragging?
+    // Actually we need it true so width switches to px mode.
+    // By setting panelWidth to current clientWidth first, the switch should be seamless.
+    setIsManualResize(true);
   }, []);
 
   const stopResizing = React.useCallback(() => {
@@ -82,6 +91,15 @@ export default function Home() {
     });
   }, []);
 
+  const toggleAIPanel = () => {
+    const newState = !isAIPanelOpen;
+    setIsAIPanelOpen(newState);
+    if (!newState) {
+      // Reset manual resize when closing, so next open is "optimal" again
+      setIsManualResize(false);
+    }
+  };
+
   React.useEffect(() => {
     window.addEventListener("mousemove", resize);
     window.addEventListener("mouseup", stopResizing);
@@ -95,7 +113,7 @@ export default function Home() {
     <main className={styles.container}>
       <div className={styles.explorerContainer}>
         <FileExplorer
-          onToggleAI={() => setIsAIPanelOpen(!isAIPanelOpen)}
+          onToggleAI={toggleAIPanel}
           isAIPanelOpen={isAIPanelOpen}
           onContextChange={handleContextChange}
         />
@@ -109,17 +127,21 @@ export default function Home() {
       )}
 
       <div
+        ref={panelRef}
         className={styles.aiPanelContainer}
         style={{
-          width: isAIPanelOpen ? `${panelWidth}px` : '0px',
+          width: isAIPanelOpen
+            ? (isManualResize ? `${panelWidth}px` : 'fit-content')
+            : '0px',
           minWidth: isAIPanelOpen ? 'auto' : '0px', // Allow minWidth to be auto when open, 0 when closed
+          maxWidth: isAIPanelOpen ? '50vw' : '0px', // Prevent it from taking over too much space in auto mode
           opacity: isAIPanelOpen ? 1 : 0,
           pointerEvents: isAIPanelOpen ? 'auto' : 'none',
         }}
       >
         <AIPanel
           isOpen={isAIPanelOpen}
-          onClose={() => setIsAIPanelOpen(false)}
+          onClose={toggleAIPanel}
           fsContext={fsContext}
         />
       </div>
