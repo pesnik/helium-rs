@@ -27,6 +27,7 @@ import {
     BroomRegular,
     StethoscopeRegular,
     InfoRegular,
+    FolderOpenRegular,
 } from '@fluentui/react-icons';
 import { invoke } from '@tauri-apps/api/core';
 import { JunkCategory, JunkItem } from '../types/cleaner';
@@ -251,19 +252,38 @@ export const CleanerPanel = () => {
                                     </AccordionHeader>
                                     <AccordionPanel>
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            {cat.items.map(item => (
-                                                <div key={item.path} className={styles.itemRow}>
-                                                    <Checkbox
-                                                        label={item.name}
-                                                        checked={selectedItems.has(item.path)}
-                                                        onChange={(e, data) => toggleItem(item.path, !!data.checked)}
-                                                    />
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                        <Text size={200} style={{ color: '#aaa' }}>{formatSize(item.size)}</Text>
-                                                        {/* <Button icon={<InfoRegular />} appearance="transparent" size="small" /> */}
-                                                    </span>
-                                                </div>
-                                            ))}
+                                            {cat.items.map(item => {
+                                                const handleRevealInExplorer = async (e: React.MouseEvent) => {
+                                                    e.stopPropagation(); // Prevent accordion from capturing the click
+                                                    console.log('Revealing in explorer:', item.path);
+                                                    try {
+                                                        await invoke('reveal_in_explorer', { path: item.path });
+                                                        console.log('Successfully called reveal_in_explorer');
+                                                    } catch (e) {
+                                                        console.error('Failed to reveal in explorer:', e);
+                                                    }
+                                                };
+
+                                                return (
+                                                    <div key={item.path} className={styles.itemRow}>
+                                                        <Checkbox
+                                                            label={item.name}
+                                                            checked={selectedItems.has(item.path)}
+                                                            onChange={(e, data) => toggleItem(item.path, !!data.checked)}
+                                                        />
+                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <Text size={200} style={{ color: '#aaa' }}>{formatSize(item.size)}</Text>
+                                                            <Button
+                                                                icon={<FolderOpenRegular />}
+                                                                appearance="transparent"
+                                                                size="small"
+                                                                title="Show in Finder/Explorer"
+                                                                onClick={handleRevealInExplorer}
+                                                            />
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </AccordionPanel>
                                 </AccordionItem>
