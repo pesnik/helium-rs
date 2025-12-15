@@ -8,9 +8,9 @@ import {
     Text,
     tokens,
 } from '@fluentui/react-components';
+
 import {
     ChevronRightRegular,
-    EditRegular,
     FolderRegular,
     HardDriveRegular,
 } from '@fluentui/react-icons';
@@ -43,9 +43,6 @@ const useStyles = makeStyles({
         marginLeft: '2px',
         marginRight: '2px',
     },
-    editButton: {
-        marginLeft: 'auto',
-    }
 });
 
 interface BreadcrumbPathProps {
@@ -192,14 +189,6 @@ export const BreadcrumbPath = ({ path, onNavigate }: BreadcrumbPathProps) => {
 
             {/* Filler to take up space and allow clicking to edit */}
             <div style={{ flexGrow: 1, alignSelf: 'stretch', cursor: 'text' }} onClick={() => setIsEditing(true)} />
-
-            <Button
-                appearance="transparent"
-                icon={<EditRegular />}
-                onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-                size="small"
-                title="Edit path"
-            />
         </div>
     );
 };
