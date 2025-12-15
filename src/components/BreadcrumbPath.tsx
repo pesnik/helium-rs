@@ -35,7 +35,6 @@ const useStyles = makeStyles({
         fontWeight: 'normal',
         ':hover': {
             backgroundColor: tokens.colorNeutralBackground1Hover,
-            textDecorationLine: 'underline',
         }
     },
     separator: {
