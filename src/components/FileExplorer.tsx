@@ -5,7 +5,6 @@ import {
     makeStyles,
     shorthands,
     Button,
-    Input,
     Text,
     DataGrid,
     DataGridBody,
@@ -50,6 +49,7 @@ import {
     SparkleRegular,
 } from '@fluentui/react-icons';
 import { DiskUsageChart } from './DiskUsageChart';
+import { BreadcrumbPath } from './BreadcrumbPath';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { FileNode } from '@/types';
@@ -170,7 +170,6 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
         error: null,
     });
 
-    const [inputPath, setInputPath] = React.useState(state.path);
     const [selectedItems, setSelectedItems] = React.useState<Set<SelectionItemId>>(new Set());
     const [showChart, setShowChart] = React.useState(false);
 
@@ -292,7 +291,6 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                     },
                     path: ''
                 }));
-                setInputPath('');
                 setSelectedItems(new Set());
                 return;
             }
@@ -300,7 +298,6 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
             const command = forceRefresh ? 'refresh_scan' : 'scan_dir';
             const data = await invoke<FileNode>(command, { path });
             setState(prev => ({ ...prev, loading: false, data, path }));
-            setInputPath(path);
             setSelectedItems(new Set()); // Clear selection on navigate
         } catch (e: unknown) {
             setState(prev => ({ ...prev, loading: false, error: String(e) }));
@@ -494,15 +491,10 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                 </Tooltip>
 
                 <div className={styles.pathBar}>
-                    <Input
-                        value={inputPath}
-                        onChange={(e, data) => setInputPath(data.value)}
-                        style={{ flexGrow: 1 }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleNavigate(inputPath);
-                        }}
+                    <BreadcrumbPath
+                        path={state.path}
+                        onNavigate={handleNavigate}
                     />
-                    <Button appearance="primary" onClick={() => handleNavigate(inputPath)}>Go</Button>
                 </div>
             </div>
 
