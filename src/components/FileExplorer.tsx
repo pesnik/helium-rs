@@ -47,9 +47,11 @@ import {
     InfoRegular,
     DismissRegular,
     SparkleRegular,
+    BroomRegular,
 } from '@fluentui/react-icons';
 import { DiskUsageChart } from './DiskUsageChart';
 import { BreadcrumbPath } from './BreadcrumbPath';
+import { CleanerPanel } from './CleanerPanel';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { FileNode } from '@/types';
@@ -172,6 +174,7 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
 
     const [selectedItems, setSelectedItems] = React.useState<Set<SelectionItemId>>(new Set());
     const [showChart, setShowChart] = React.useState(false);
+    const [viewMode, setViewMode] = React.useState<'explorer' | 'cleaner'>('explorer');
 
     // Scan Progress State
     const [scanProgress, setScanProgress] = useState<ScanProgressPayload | null>(null);
@@ -476,6 +479,15 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                         icon={<DataPieRegular />}
                         appearance={showChart ? "primary" : "secondary"}
                         onClick={() => setShowChart(!showChart)}
+                        disabled={viewMode === 'cleaner'}
+                    />
+                </Tooltip>
+
+                <Tooltip content="System Cleaner" relationship="label">
+                    <Button
+                        icon={<BroomRegular />}
+                        appearance={viewMode === 'cleaner' ? "primary" : "subtle"}
+                        onClick={() => setViewMode(viewMode === 'cleaner' ? 'explorer' : 'cleaner')}
                     />
                 </Tooltip>
 
@@ -510,161 +522,169 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                 />
             )}
 
-            {/* Main Content Area (Grid + Chart) */}
+            {/* Main Content Area (Grid + Chart + Cleaner) */}
             <div style={{ display: 'flex', flexGrow: 1, overflow: 'hidden', gap: '10px' }}>
-                {/* Grid */}
-                <div className={styles.gridContainer} style={{ flexGrow: 1, width: showChart ? '60%' : '100%' }}>
-                    <DataGrid
-                        items={items}
-                        columns={columns}
-                        sortable
-                        selectionMode="single"
-                        selectedItems={selectedItems}
-                        onSelectionChange={(e, data) => setSelectedItems(data.selectedItems)}
-                        getRowId={(item) => item.path}
-                    >
-                        <DataGridHeader>
-                            <DataGridRow>
-                                {({ renderHeaderCell }) => (
-                                    <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>
-                                )}
-                            </DataGridRow>
-                        </DataGridHeader>
-                        <DataGridBody<FileNode>>
-                            {({ item, rowId }) => (
-                                <DataGridRow<FileNode>
-                                    key={rowId}
-                                    onContextMenu={(e: React.MouseEvent) => {
-                                        e.preventDefault();
-                                        setContextMenuItem(item);
-                                        setContextMenuLocation({ x: e.clientX, y: e.clientY });
-                                        setContextMenuOpen(true);
-                                        setSelectedItems(new Set([item.path])); // Auto select on right click
-                                    }}
-                                    onDoubleClick={() => handleOpenFile(item)}
-                                    onKeyDown={(e: React.KeyboardEvent) => {
-                                        if (e.key === 'Enter') {
-                                            handleOpenFile(item);
-                                        }
-                                    }}
-                                >
-                                    {({ renderCell }) => (
-                                        <DataGridCell>{renderCell(item)}</DataGridCell>
-                                    )}
-                                </DataGridRow>
-                            )}
-                        </DataGridBody>
-                    </DataGrid>
-
-                    {/* Context Menu */}
-                    <Menu
-                        open={contextMenuOpen}
-                        onOpenChange={(e, data) => setContextMenuOpen(data.open)}
-                        positioning={{
-                            target: {
-                                getBoundingClientRect: () => ({
-                                    top: contextMenuLocation.y,
-                                    left: contextMenuLocation.x,
-                                    right: contextMenuLocation.x,
-                                    bottom: contextMenuLocation.y,
-                                    width: 0,
-                                    height: 0,
-                                    x: contextMenuLocation.x,
-                                    y: contextMenuLocation.y,
-                                    toJSON: () => { },
-                                }),
-                            },
-                        }}
-                    >
-                        <MenuPopover>
-                            <MenuList>
-                                <MenuItem icon={<OpenRegular />} onClick={() => contextMenuItem && handleOpenFile(contextMenuItem)}>
-                                    Open
-                                </MenuItem>
-                                <MenuItem icon={<FolderOpenRegular />} onClick={() => contextMenuItem && handleRevealInExplorer(contextMenuItem)}>
-                                    Reveal in Explorer/Finder
-                                </MenuItem>
-                                <MenuItem icon={<InfoRegular />} onClick={() => contextMenuItem && handlePropertiesClick(contextMenuItem)} disabled={!contextMenuItem}>
-                                    Properties
-                                </MenuItem>
-                                <MenuItem icon={<DeleteRegular />} onClick={() => contextMenuItem && handleDeleteClick(contextMenuItem)}>
-                                    Delete
-                                </MenuItem>
-                            </MenuList>
-                        </MenuPopover>
-                    </Menu>
-
-                    {/* Properties Dialog */}
-                    <Dialog open={propertiesDialogOpen} onOpenChange={(event, data) => setPropertiesDialogOpen(data.open)}>
-                        <DialogSurface>
-                            <DialogBody>
-                                <DialogTitle>Properties</DialogTitle>
-                                <DialogContent>
-                                    {dialogItem && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                {dialogItem.is_dir ? <FolderRegular fontSize={24} /> : <DocumentRegular fontSize={24} />}
-                                                <Text weight="semibold" size={500}>{dialogItem.name}</Text>
-                                            </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '5px' }}>
-                                                <Text weight="medium">Type:</Text>
-                                                <Text>{dialogItem.is_dir ? 'Folder' : 'File'}</Text>
-
-                                                <Text weight="medium">Location:</Text>
-                                                <Text style={{ wordBreak: 'break-all' }}>{dialogItem.path}</Text>
-
-                                                <Text weight="medium">Size:</Text>
-                                                <Text>{formatSize(dialogItem.size)} ({dialogItem.size.toLocaleString()} bytes)</Text>
-
-                                                <Text weight="medium">Modified:</Text>
-                                                <Text>{new Date(dialogItem.last_modified * 1000).toLocaleString()}</Text>
-
-                                                {dialogItem.is_dir && (
-                                                    <>
-                                                        <Text weight="medium">Contains:</Text>
-                                                        <Text>{dialogItem.file_count.toLocaleString()} Files</Text>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </DialogContent>
-                                <DialogActions>
-                                    <Button appearance="primary" onClick={() => setPropertiesDialogOpen(false)}>Close</Button>
-                                </DialogActions>
-                            </DialogBody>
-                        </DialogSurface>
-                    </Dialog>
-
-                    {/* Delete Confirmation Dialog */}
-                    <Dialog open={deleteDialogOpen} onOpenChange={(event, data) => setDeleteDialogOpen(data.open)}>
-                        <DialogSurface>
-                            <DialogBody>
-                                <DialogTitle>Confirm Delete</DialogTitle>
-                                <DialogContent>
-                                    <Text>
-                                        Are you sure you want to permanently delete <strong>{dialogItem?.name}</strong>?
-                                    </Text>
-                                    {dialogItem?.is_dir && (
-                                        <Text block style={{ marginTop: '10px', color: 'var(--colorPaletteRedForeground1)' }}>
-                                            Warning: This is a folder. All contents will be deleted.
-                                        </Text>
-                                    )}
-                                </DialogContent>
-                                <DialogActions>
-                                    <Button appearance="secondary" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-                                    <Button appearance="primary" style={{ backgroundColor: '#d13438', color: 'white' }} onClick={confirmDelete}>Delete</Button>
-                                </DialogActions>
-                            </DialogBody>
-                        </DialogSurface>
-                    </Dialog>
-                </div>
-
-                {/* Chart Panel */}
-                {showChart && items.length > 0 && (
-                    <div style={{ width: '40%', minWidth: '300px', display: 'flex', flexDirection: 'column' }}>
-                        <DiskUsageChart items={items} />
+                {viewMode === 'cleaner' ? (
+                    <div style={{ flexGrow: 1, height: '100%', overflow: 'hidden' }}>
+                        <CleanerPanel />
                     </div>
+                ) : (
+                    <>
+                        {/* Grid */}
+                        <div className={styles.gridContainer} style={{ flexGrow: 1, width: showChart ? '60%' : '100%' }}>
+                            <DataGrid
+                                items={items}
+                                columns={columns}
+                                sortable
+                                selectionMode="single"
+                                selectedItems={selectedItems}
+                                onSelectionChange={(e, data) => setSelectedItems(data.selectedItems)}
+                                getRowId={(item) => item.path}
+                            >
+                                <DataGridHeader>
+                                    <DataGridRow>
+                                        {({ renderHeaderCell }) => (
+                                            <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>
+                                        )}
+                                    </DataGridRow>
+                                </DataGridHeader>
+                                <DataGridBody<FileNode>>
+                                    {({ item, rowId }) => (
+                                        <DataGridRow<FileNode>
+                                            key={rowId}
+                                            onContextMenu={(e: React.MouseEvent) => {
+                                                e.preventDefault();
+                                                setContextMenuItem(item);
+                                                setContextMenuLocation({ x: e.clientX, y: e.clientY });
+                                                setContextMenuOpen(true);
+                                                setSelectedItems(new Set([item.path])); // Auto select on right click
+                                            }}
+                                            onDoubleClick={() => handleOpenFile(item)}
+                                            onKeyDown={(e: React.KeyboardEvent) => {
+                                                if (e.key === 'Enter') {
+                                                    handleOpenFile(item);
+                                                }
+                                            }}
+                                        >
+                                            {({ renderCell }) => (
+                                                <DataGridCell>{renderCell(item)}</DataGridCell>
+                                            )}
+                                        </DataGridRow>
+                                    )}
+                                </DataGridBody>
+                            </DataGrid>
+
+                            {/* Context Menu */}
+                            <Menu
+                                open={contextMenuOpen}
+                                onOpenChange={(e, data) => setContextMenuOpen(data.open)}
+                                positioning={{
+                                    target: {
+                                        getBoundingClientRect: () => ({
+                                            top: contextMenuLocation.y,
+                                            left: contextMenuLocation.x,
+                                            right: contextMenuLocation.x,
+                                            bottom: contextMenuLocation.y,
+                                            width: 0,
+                                            height: 0,
+                                            x: contextMenuLocation.x,
+                                            y: contextMenuLocation.y,
+                                            toJSON: () => { },
+                                        }),
+                                    },
+                                }}
+                            >
+                                <MenuPopover>
+                                    <MenuList>
+                                        <MenuItem icon={<OpenRegular />} onClick={() => contextMenuItem && handleOpenFile(contextMenuItem)}>
+                                            Open
+                                        </MenuItem>
+                                        <MenuItem icon={<FolderOpenRegular />} onClick={() => contextMenuItem && handleRevealInExplorer(contextMenuItem)}>
+                                            Reveal in Explorer/Finder
+                                        </MenuItem>
+                                        <MenuItem icon={<InfoRegular />} onClick={() => contextMenuItem && handlePropertiesClick(contextMenuItem)} disabled={!contextMenuItem}>
+                                            Properties
+                                        </MenuItem>
+                                        <MenuItem icon={<DeleteRegular />} onClick={() => contextMenuItem && handleDeleteClick(contextMenuItem)}>
+                                            Delete
+                                        </MenuItem>
+                                    </MenuList>
+                                </MenuPopover>
+                            </Menu>
+
+                            {/* Properties Dialog */}
+                            <Dialog open={propertiesDialogOpen} onOpenChange={(event, data) => setPropertiesDialogOpen(data.open)}>
+                                <DialogSurface>
+                                    <DialogBody>
+                                        <DialogTitle>Properties</DialogTitle>
+                                        <DialogContent>
+                                            {dialogItem && (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                        {dialogItem.is_dir ? <FolderRegular fontSize={24} /> : <DocumentRegular fontSize={24} />}
+                                                        <Text weight="semibold" size={500}>{dialogItem.name}</Text>
+                                                    </div>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '5px' }}>
+                                                        <Text weight="medium">Type:</Text>
+                                                        <Text>{dialogItem.is_dir ? 'Folder' : 'File'}</Text>
+
+                                                        <Text weight="medium">Location:</Text>
+                                                        <Text style={{ wordBreak: 'break-all' }}>{dialogItem.path}</Text>
+
+                                                        <Text weight="medium">Size:</Text>
+                                                        <Text>{formatSize(dialogItem.size)} ({dialogItem.size.toLocaleString()} bytes)</Text>
+
+                                                        <Text weight="medium">Modified:</Text>
+                                                        <Text>{new Date(dialogItem.last_modified * 1000).toLocaleString()}</Text>
+
+                                                        {dialogItem.is_dir && (
+                                                            <>
+                                                                <Text weight="medium">Contains:</Text>
+                                                                <Text>{dialogItem.file_count.toLocaleString()} Files</Text>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </DialogContent>
+                                        <DialogActions>
+                                            <Button appearance="primary" onClick={() => setPropertiesDialogOpen(false)}>Close</Button>
+                                        </DialogActions>
+                                    </DialogBody>
+                                </DialogSurface>
+                            </Dialog>
+
+                            {/* Delete Confirmation Dialog */}
+                            <Dialog open={deleteDialogOpen} onOpenChange={(event, data) => setDeleteDialogOpen(data.open)}>
+                                <DialogSurface>
+                                    <DialogBody>
+                                        <DialogTitle>Confirm Delete</DialogTitle>
+                                        <DialogContent>
+                                            <Text>
+                                                Are you sure you want to permanently delete <strong>{dialogItem?.name}</strong>?
+                                            </Text>
+                                            {dialogItem?.is_dir && (
+                                                <Text block style={{ marginTop: '10px', color: 'var(--colorPaletteRedForeground1)' }}>
+                                                    Warning: This is a folder. All contents will be deleted.
+                                                </Text>
+                                            )}
+                                        </DialogContent>
+                                        <DialogActions>
+                                            <Button appearance="secondary" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+                                            <Button appearance="primary" style={{ backgroundColor: '#d13438', color: 'white' }} onClick={confirmDelete}>Delete</Button>
+                                        </DialogActions>
+                                    </DialogBody>
+                                </DialogSurface>
+                            </Dialog>
+                        </div>
+
+                        {/* Chart Panel */}
+                        {showChart && items.length > 0 && (
+                            <div style={{ width: '40%', minWidth: '300px', display: 'flex', flexDirection: 'column' }}>
+                                <DiskUsageChart items={items} />
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
 
