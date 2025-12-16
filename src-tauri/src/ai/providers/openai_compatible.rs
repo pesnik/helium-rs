@@ -63,7 +63,7 @@ pub async fn run_openai_compatible_inference(
         suggested_actions: Some(vec!["Configure endpoint in model settings".to_string()]),
     })?;
 
-    let url = format!("{}/v1/chat/completions", endpoint);
+    let url = format!("{}/chat/completions", endpoint);
 
     // Convert messages to OpenAI format
     let openai_messages: Vec<OpenAIMessage> = request
@@ -170,7 +170,7 @@ pub async fn run_openai_compatible_inference(
 
 /// Check if OpenAI-compatible endpoint is available
 pub async fn check_openai_compatible_availability(endpoint: &str) -> Result<bool, AIError> {
-    let url = format!("{}/v1/models", endpoint);
+    let url = format!("{}/models", endpoint);
 
     match reqwest::get(&url).await {
         Ok(response) => Ok(response.status().is_success()),

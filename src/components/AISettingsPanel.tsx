@@ -6,26 +6,27 @@ import {
     Text,
     Slider,
     Label,
-    Switch,
     Button,
     Divider,
     Dialog,
     DialogSurface,
     DialogBody,
-    DialogTitle,
     DialogContent,
     DialogActions,
     TabList,
     Tab,
-    SelectTabData,
-    SelectTabEvent,
-    Card,
-    CardHeader,
     Input,
     Badge,
     Dropdown,
     Option,
     ProgressBar,
+    Spinner,
+    Toast,
+    Toaster,
+    useToastController,
+    useId,
+    ToastTitle,
+    ToastBody,
 } from '@fluentui/react-components';
 import {
     Dismiss24Regular,
@@ -36,7 +37,8 @@ import {
     Play24Regular,
     ArrowDownload24Regular,
 } from '@fluentui/react-icons';
-import { ModelConfig, ModelParameters, ModelProvider, AIMode } from '@/types/ai-types';
+import { ModelConfig, ModelParameters, ModelProvider, AIMode, MessageRole } from '@/types/ai-types';
+import { runInference, createMessage } from '@/lib/ai/ai-service';
 
 const useStyles = makeStyles({
     dialogSurface: {
@@ -156,19 +158,29 @@ export function AISettingsPanel({
     open
 }: AISettingsPanelProps) {
     const styles = useStyles();
+    const toasterId = useId('toaster');
+    const { dispatchToast } = useToastController(toasterId);
 
     // Defensive defaults in case modelConfig is missing (should be handled by parent)
     const [selectedTab, setSelectedTab] = React.useState<string>('general');
     const [params, setParams] = React.useState<ModelParameters>(modelConfig?.parameters || {
         temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true
     });
-    const [customEndpoint, setCustomEndpoint] = React.useState<string>('http://127.0.0.1:11434');
+    const [customEndpoint, setCustomEndpoint] = React.useState<string>(
+        activeProvider === ModelProvider.OpenAICompatible
+            ? 'http://127.0.0.1:8080/v1'
+            : 'http://127.0.0.1:11434'
+    );
 
     // Track if current config is set as default
     const [isDefault, setIsDefault] = React.useState<boolean>(
         localStorage.getItem('defaultAIProvider') === activeProvider &&
         localStorage.getItem('defaultAIModel') === modelConfig?.id
     );
+
+    // Test inference state
+    const [isTesting, setIsTesting] = React.useState<boolean>(false);
+    const [testResult, setTestResult] = React.useState<string | null>(null);
 
     // Safety check - if no config, don't render (but hooks must run first)
     if (!modelConfig) {
@@ -217,6 +229,85 @@ export function AISettingsPanel({
             case ModelProvider.Ollama: return <BotRegular />;
             case ModelProvider.Candle: return <BotRegular />; // Use Bot icon for now
             default: return <CubeRegular />;
+        }
+    };
+
+    const handleTestInference = async () => {
+        if (!modelConfig || !activeProvider) {
+            dispatchToast(
+                <Toast>
+                    <ToastTitle>Test Failed</ToastTitle>
+                    <ToastBody>No model selected</ToastBody>
+                </Toast>,
+                { intent: 'error' }
+            );
+            return;
+        }
+
+        setIsTesting(true);
+        setTestResult(null);
+
+        try {
+            const testMessage = createMessage(MessageRole.User, 'Hello! Please respond with a brief greeting.');
+
+            // Use the custom endpoint if it's set for OpenAI-compatible or Ollama providers
+            const testModelConfig = {
+                ...modelConfig,
+                ...(activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama
+                    ? { endpoint: customEndpoint, provider: activeProvider }
+                    : {})
+            };
+
+            let streamedResponse = '';
+            const response = await runInference(
+                {
+                    sessionId: 'test-inference',
+                    modelConfig: testModelConfig,
+                    messages: [testMessage],
+                    mode: AIMode.QA,
+                },
+                (chunk) => {
+                    streamedResponse += chunk;
+                }
+            );
+
+            const finalResponse = response.message.content || streamedResponse;
+            setTestResult(finalResponse);
+
+            dispatchToast(
+                <Toast>
+                    <ToastTitle>Test Successful</ToastTitle>
+                    <ToastBody>Model responded: {finalResponse.substring(0, 50)}...</ToastBody>
+                </Toast>,
+                { intent: 'success' }
+            );
+        } catch (error: any) {
+            console.error('Test inference failed:', error);
+
+            // Don't set inline error, only show toast to avoid redundancy
+            let errorMessage = 'Failed to run inference';
+
+            if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error?.message) {
+                errorMessage = error.message;
+            } else if (error) {
+                try {
+                    errorMessage = JSON.stringify(error);
+                } catch {
+                    errorMessage = String(error);
+                }
+            }
+
+            dispatchToast(
+                <Toast>
+                    <ToastTitle>Test Failed</ToastTitle>
+                    <ToastBody>{errorMessage}</ToastBody>
+                </Toast>,
+                { intent: 'error' }
+            );
+        } finally {
+            setIsTesting(false);
         }
     };
 
@@ -282,11 +373,13 @@ export function AISettingsPanel({
                                                     <Input
                                                         value={customEndpoint}
                                                         onChange={(e) => setCustomEndpoint(e.target.value)}
-                                                        placeholder={activeProvider === 'ollama' ? "http://127.0.0.1:11434" : "http://localhost:1234/v1"}
+                                                        placeholder={activeProvider === 'ollama' ? "http://127.0.0.1:11434" : "http://127.0.0.1:8080/v1"}
                                                         style={{ width: '100%', marginTop: '4px' }}
                                                     />
                                                     <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                                                        {activeProvider === 'ollama' ? 'Custom port (e.g. 11434) for local Ollama instance.' : 'URL for local LLM server (compatible with OpenAI API).'}
+                                                        {activeProvider === 'ollama'
+                                                            ? 'Base URL for Ollama server (e.g., http://127.0.0.1:11434)'
+                                                            : 'OpenAI-compatible base URL ending with /v1 (e.g., http://127.0.0.1:8033/v1)'}
                                                     </Text>
                                                 </div>
                                             )}
@@ -296,14 +389,33 @@ export function AISettingsPanel({
                                             <Label weight="semibold" className={styles.sectionTitle}>
                                                 Available Models {activeProvider && `(${activeProvider})`}
                                             </Label>
-                                            <div className={styles.cardGrid}>
-                                                {displayModels.length === 0 ? (
-                                                    <Text style={{ padding: '20px', color: tokens.colorNeutralForeground3 }}>
-                                                        {activeProvider
-                                                            ? `No models found for ${activeProvider}. Try selecting a different provider above.`
-                                                            : 'Please select a provider above to see available models.'}
+                                            {activeProvider === ModelProvider.OpenAICompatible && displayModels.length === 0 ? (
+                                                <div style={{ padding: '20px', color: tokens.colorNeutralForeground3 }}>
+                                                    <Text block style={{ marginBottom: '12px', fontWeight: 600 }}>
+                                                        OpenAI-Compatible Server Setup
                                                     </Text>
-                                                ) : (
+                                                    <Text block size={200} style={{ marginBottom: '8px' }}>
+                                                        1. Set your base URL above (must end with <code>/v1</code>)
+                                                    </Text>
+                                                    <Text block size={200} style={{ marginBottom: '8px', marginLeft: '16px', color: tokens.colorNeutralForeground4 }}>
+                                                        Example: <code>http://127.0.0.1:8033/v1</code> for llama-server
+                                                    </Text>
+                                                    <Text block size={200} style={{ marginBottom: '12px' }}>
+                                                        2. The app will append <code>/chat/completions</code> for inference
+                                                    </Text>
+                                                    <Text block size={200}>
+                                                        3. Use the &quot;Test Inference&quot; button below to verify the connection
+                                                    </Text>
+                                                </div>
+                                            ) : (
+                                                <div className={styles.cardGrid}>
+                                                    {displayModels.length === 0 ? (
+                                                        <Text style={{ padding: '20px', color: tokens.colorNeutralForeground3 }}>
+                                                            {activeProvider
+                                                                ? `No models found for ${activeProvider}. Try selecting a different provider above.`
+                                                                : 'Please select a provider above to see available models.'}
+                                                        </Text>
+                                                    ) : (
                                                     displayModels.map((model) => {
                                                         const isDownloading = downloadProgress?.modelId === model.modelId && downloadProgress?.status === 'downloading';
                                                         const isDefaultModel =
@@ -380,8 +492,9 @@ export function AISettingsPanel({
                                                             </div>
                                                         );
                                                     })
-                                                )}
-                                            </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </>
                                 )}
@@ -482,9 +595,38 @@ export function AISettingsPanel({
                         </div>
                     </DialogContent>
 
+                    {testResult && (
+                        <div style={{
+                            padding: '12px 24px',
+                            backgroundColor: testResult.startsWith('Error')
+                                ? tokens.colorPaletteRedBackground1
+                                : tokens.colorPaletteGreenBackground1,
+                            borderTop: `1px solid ${tokens.colorNeutralStroke1}`,
+                            borderBottom: `1px solid ${tokens.colorNeutralStroke1}`
+                        }}>
+                            <Text
+                                size={200}
+                                style={{
+                                    color: testResult.startsWith('Error')
+                                        ? tokens.colorPaletteRedForeground1
+                                        : tokens.colorPaletteGreenForeground1,
+                                    wordBreak: 'break-word'
+                                }}
+                            >
+                                {testResult.startsWith('Error') ? '❌ ' : '✅ '}
+                                {testResult}
+                            </Text>
+                        </div>
+                    )}
+
                     <DialogActions>
-                        <Button appearance="outline" icon={<Play24Regular />}>
-                            Test Inference
+                        <Button
+                            appearance="outline"
+                            icon={isTesting ? <Spinner size="tiny" /> : <Play24Regular />}
+                            onClick={handleTestInference}
+                            disabled={isTesting}
+                        >
+                            {isTesting ? 'Testing...' : 'Test Inference'}
                         </Button>
                         {modelConfig && activeProvider && (
                             <Button
@@ -509,6 +651,8 @@ export function AISettingsPanel({
                             Save
                         </Button>
                     </DialogActions>
+
+                    <Toaster toasterId={toasterId} />
                 </DialogBody>
             </DialogSurface>
         </Dialog>
