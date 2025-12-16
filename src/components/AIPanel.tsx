@@ -167,6 +167,26 @@ export const AIPanel = ({
                 const savedProvider = localStorage.getItem('defaultAIProvider') as ModelProvider | null;
                 const savedModelId = localStorage.getItem('defaultAIModel');
 
+                // If we're looking for the generic OpenAI-compatible model, create it first
+                if (savedModelId === 'openai-compatible-generic' && savedProvider === ModelProvider.OpenAICompatible) {
+                    const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
+                    if (savedEndpoint) {
+                        const genericModel: ModelConfig = {
+                            id: 'openai-compatible-generic',
+                            name: 'OpenAI Compatible Server',
+                            provider: ModelProvider.OpenAICompatible,
+                            modelId: 'gpt-3.5-turbo', // Generic default
+                            parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
+                            endpoint: savedEndpoint,
+                            isAvailable: true,
+                            recommendedFor: [AIMode.QA, AIMode.Agent],
+                            sizeBytes: 0
+                        };
+                        allModels.push(genericModel);
+                        setAvailableModels(allModels);
+                    }
+                }
+
                 // Priority: 1) Saved model, 2) Saved provider's first model, 3) Default model for mode
                 let modelToSelect: ModelConfig | null = null;
                 let providerToUse: ModelProvider | undefined = undefined;
@@ -291,6 +311,7 @@ export const AIPanel = ({
 
         try {
             const selectedModel = availableModels.find((m) => m.id === selectedModelId);
+
             if (!selectedModel) {
                 throw new Error('No model selected');
             }
@@ -303,9 +324,17 @@ export const AIPanel = ({
             // Don't create placeholder yet - wait for first chunk to avoid empty bubble
             let streamedContent = '';
 
+            // Add saved endpoint for OpenAI-compatible and Ollama providers
+            const modelConfigWithEndpoint = {
+                ...selectedModel,
+                ...(selectedModel.provider === ModelProvider.OpenAICompatible || selectedModel.provider === ModelProvider.Ollama
+                    ? { endpoint: localStorage.getItem('defaultAIEndpoint') || selectedModel.endpoint }
+                    : {})
+            };
+
             const response = await runInference({
                 sessionId: 'default', // TODO: Implement session management
-                modelConfig: selectedModel,
+                modelConfig: modelConfigWithEndpoint,
                 messages: [...messages, userMessage],
                 fsContext,
                 mode,
