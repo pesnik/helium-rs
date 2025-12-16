@@ -128,13 +128,26 @@ const useStyles = makeStyles({
     },
     inputContainer: {
         ...shorthands.padding('16px'),
-        ...shorthands.borderTop('1px', 'solid', tokens.colorNeutralStroke1),
+        backgroundColor: '#1e1e1e',
+        ...shorthands.borderTop('1px', 'solid', '#3a3a3a'),
         display: 'flex',
         ...shorthands.gap('8px'),
         alignItems: 'center',
     },
     input: {
         flex: 1,
+        backgroundColor: '#2a2a2a',
+        color: '#ffffff',
+        ...shorthands.border('1px', 'solid', '#3a3a3a'),
+        '&:focus': {
+            ...shorthands.border('1px', 'solid', '#4a7fbe'),
+        },
+        '& input': {
+            color: '#ffffff',
+            '&::placeholder': {
+                color: '#888888',
+            },
+        },
     },
     timestamp: {
         fontSize: '11px',
