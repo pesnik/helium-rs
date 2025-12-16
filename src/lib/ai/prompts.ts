@@ -46,28 +46,6 @@ Instructions:
     variables: ['fs_context', 'current_path', 'user_query'],
 };
 
-/**
- * Summarize Mode Prompt Template
- */
-export const SUMMARIZE_TEMPLATE: PromptTemplate = {
-    id: 'summarize-default',
-    name: 'File System Summarization',
-    mode: AIMode.Summarize,
-    systemPrompt: `You are a file system analyzer. Provide concise, insightful summaries of file and folder information.
-
-Guidelines:
-- Highlight key insights and patterns
-- Identify largest files and folders
-- Note file type distributions
-- Keep summaries brief (2-4 sentences)
-- Use bullet points for clarity when appropriate`,
-    userPrompt: `Summarize the following file system information:
-
-{fs_context}
-
-Provide a brief, insightful summary.`,
-    variables: ['fs_context'],
-};
 
 /**
  * Agent Mode Prompt Template (Phase 4)
@@ -101,8 +79,6 @@ export function getTemplateForMode(mode: AIMode): PromptTemplate {
     switch (mode) {
         case AIMode.QA:
             return QA_TEMPLATE;
-        case AIMode.Summarize:
-            return SUMMARIZE_TEMPLATE;
         case AIMode.Agent:
             return AGENT_TEMPLATE;
         default:
@@ -115,6 +91,5 @@ export function getTemplateForMode(mode: AIMode): PromptTemplate {
  */
 export const PROMPT_TEMPLATES: Record<string, PromptTemplate> = {
     [QA_TEMPLATE.id]: QA_TEMPLATE,
-    [SUMMARIZE_TEMPLATE.id]: SUMMARIZE_TEMPLATE,
     [AGENT_TEMPLATE.id]: AGENT_TEMPLATE,
 };

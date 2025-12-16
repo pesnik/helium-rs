@@ -21,7 +21,6 @@ export enum ModelProvider {
  */
 export enum AIMode {
     QA = 'qa',
-    Summarize = 'summarize',
     Agent = 'agent',
 }
 

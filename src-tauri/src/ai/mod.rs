@@ -23,7 +23,6 @@ pub enum ModelProvider {
 #[serde(rename_all = "lowercase")]
 pub enum AIMode {
     QA,
-    Summarize,
     Agent,
 }
 

@@ -413,10 +413,6 @@ export const AIPanel = ({
                         >
                             Download Ollama
                         </Button>
-
-                        <Text size={200} style={{ marginTop: '16px', textAlign: 'center', maxWidth: '80%' }}>
-                            <strong>Tip:</strong> Switch to <strong>Summarize Mode</strong> to use the built-in browser model (no download required).
-                        </Text>
                     </div>
                 ) : (
                     <AIChat
@@ -425,11 +421,7 @@ export const AIPanel = ({
                         isLoading={isLoading}
                         isStreaming={isLoading && isStreamingProvider} // Only treat as streaming if loading AND provider matches
                         loadingStatus="Thinking..."
-                        placeholder={
-                            mode === AIMode.Summarize
-                                ? 'Describe what you want to summarize...'
-                                : 'Ask about your files...'
-                        }
+                        placeholder="Ask about your files..."
                     />
                 )}
             </div>

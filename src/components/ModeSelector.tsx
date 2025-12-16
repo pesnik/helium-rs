@@ -16,7 +16,6 @@ import {
 } from '@fluentui/react-components';
 import {
     ChatMultiple24Regular,
-    DocumentText24Regular,
     Bot24Regular,
 } from '@fluentui/react-icons';
 import { AIMode } from '@/types/ai-types';
@@ -59,11 +58,6 @@ const MODE_CONFIG = {
         icon: <ChatMultiple24Regular />,
         label: 'QA Mode',
         tooltip: 'Ask questions about your files and folders',
-    },
-    [AIMode.Summarize]: {
-        icon: <DocumentText24Regular />,
-        label: 'Summarize',
-        tooltip: 'Get concise summaries of file/folder contents',
     },
     [AIMode.Agent]: {
         icon: <Bot24Regular />,

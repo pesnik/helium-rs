@@ -30,7 +30,7 @@ export const KNOWN_MODELS: ModelConfig[] = [
     {
         id: 'llama3.2:1b', name: 'Llama 3.2 1B', provider: ModelProvider.Ollama, isAvailable: false,
         modelId: 'llama3.2:1b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
-        recommendedFor: [AIMode.QA, AIMode.Summarize], sizeBytes: 1.3e9
+        recommendedFor: [AIMode.QA], sizeBytes: 1.3e9
     },
     {
         id: 'llama3.2:3b', name: 'Llama 3.2 3B', provider: ModelProvider.Ollama, isAvailable: false,
@@ -50,7 +50,7 @@ export const KNOWN_MODELS: ModelConfig[] = [
     {
         id: 'gemma:2b', name: 'Gemma 2B', provider: ModelProvider.Ollama, isAvailable: false,
         modelId: 'gemma:2b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
-        recommendedFor: [AIMode.Summarize], sizeBytes: 1.5e9
+        recommendedFor: [AIMode.QA], sizeBytes: 1.5e9
     },
     // Embedded AI (Candle) - Multiple options
     {
@@ -284,15 +284,6 @@ export function getDefaultModelForMode(
 
     if (recommendedModels.length === 0) {
         return availableModels[0] || null;
-    }
-
-    // Prefer smaller models for summarization
-    if (mode === AIMode.Summarize) {
-        return recommendedModels.sort((a, b) => {
-            const sizeA = a.sizeBytes || Infinity;
-            const sizeB = b.sizeBytes || Infinity;
-            return sizeA - sizeB;
-        })[0];
     }
 
     // Prefer larger models for agent mode
