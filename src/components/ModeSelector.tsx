@@ -24,13 +24,27 @@ import { AIMode } from '@/types/ai-types';
 const useStyles = makeStyles({
     container: {
         display: 'flex',
-        ...shorthands.gap('4px'),
-        ...shorthands.padding('8px'),
-        backgroundColor: tokens.colorNeutralBackground2,
-        ...shorthands.borderRadius('8px'),
+        ...shorthands.gap('8px'),
     },
     button: {
-        minWidth: '100px',
+        minWidth: 'auto',
+        ...shorthands.borderRadius('20px'),
+        ...shorthands.padding('6px', '14px'),
+        backgroundColor: 'transparent',
+        color: '#a0a0a0',
+        ...shorthands.border('1px', 'solid', '#3a3a3a'),
+        '&:hover': {
+            backgroundColor: '#2a2a2a',
+            color: '#ffffff',
+        },
+    },
+    buttonChecked: {
+        backgroundColor: '#2d5a8f',
+        color: '#ffffff',
+        ...shorthands.border('1px', 'solid', '#4a7fbe'),
+        '&:hover': {
+            backgroundColor: '#3668a3',
+        },
     },
 });
 
@@ -43,7 +57,7 @@ interface ModeSelectorProps {
 const MODE_CONFIG = {
     [AIMode.QA]: {
         icon: <ChatMultiple24Regular />,
-        label: 'QA',
+        label: 'QA Mode',
         tooltip: 'Ask questions about your files and folders',
     },
     [AIMode.Summarize]: {
@@ -67,20 +81,23 @@ export function ModeSelector({
 
     return (
         <div className={styles.container}>
-            {Object.entries(MODE_CONFIG).map(([mode, config]) => (
-                <Tooltip key={mode} content={config.tooltip} relationship="description">
-                    <ToggleButton
-                        className={styles.button}
-                        icon={config.icon}
-                        checked={selectedMode === mode}
-                        onClick={() => onModeChange(mode as AIMode)}
-                        disabled={disabled || mode === AIMode.Agent} // Agent mode disabled for now
-                        appearance="subtle"
-                    >
-                        {config.label}
-                    </ToggleButton>
-                </Tooltip>
-            ))}
+            {Object.entries(MODE_CONFIG).map(([mode, config]) => {
+                const isSelected = selectedMode === mode;
+                return (
+                    <Tooltip key={mode} content={config.tooltip} relationship="description">
+                        <ToggleButton
+                            className={isSelected ? `${styles.button} ${styles.buttonChecked}` : styles.button}
+                            icon={config.icon}
+                            checked={isSelected}
+                            onClick={() => onModeChange(mode as AIMode)}
+                            disabled={disabled || mode === AIMode.Agent}
+                            appearance="subtle"
+                        >
+                            {config.label}
+                        </ToggleButton>
+                    </Tooltip>
+                );
+            })}
         </div>
     );
 }
