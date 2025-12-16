@@ -13,6 +13,7 @@ import {
     tokens,
     shorthands,
     Tooltip,
+    mergeClasses,
 } from '@fluentui/react-components';
 import {
     ChatMultiple24Regular,
@@ -80,7 +81,7 @@ export function ModeSelector({
                 return (
                     <Tooltip key={mode} content={config.tooltip} relationship="description">
                         <ToggleButton
-                            className={isSelected ? `${styles.button} ${styles.buttonChecked}` : styles.button}
+                            className={mergeClasses(styles.button, isSelected && styles.buttonChecked)}
                             icon={config.icon}
                             checked={isSelected}
                             onClick={() => onModeChange(mode as AIMode)}
