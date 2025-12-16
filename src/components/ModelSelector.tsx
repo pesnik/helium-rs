@@ -56,6 +56,7 @@ interface ModelSelectorProps {
     selectedModelId?: string;
     onModelChange: (modelId: string) => void;
     disabled?: boolean;
+    activeProvider?: ModelProvider;
 }
 
 function formatFileSize(bytes?: number): string {
@@ -85,20 +86,41 @@ function getProviderBadgeColor(provider: ModelProvider): 'brand' | 'success' | '
     }
 }
 
+function getProviderDisplayName(provider: ModelProvider): string {
+    switch (provider) {
+        case ModelProvider.TransformerJS:
+            return 'TransformerJS';
+        case ModelProvider.Ollama:
+            return 'Ollama';
+        case ModelProvider.Candle:
+            return 'Embedded AI';
+        case ModelProvider.OpenAICompatible:
+            return 'OpenAI';
+        default:
+            return provider;
+    }
+}
+
 export function ModelSelector({
     models,
     selectedModelId,
     onModelChange,
     disabled = false,
+    activeProvider,
 }: ModelSelectorProps) {
     const styles = useStyles();
 
     const selectedModel = models.find((m) => m.id === selectedModelId);
 
+    // Show provider name in placeholder if filtering
+    const placeholder = activeProvider
+        ? `Select ${getProviderDisplayName(activeProvider)} model`
+        : 'Select a model';
+
     return (
         <Dropdown
             className={styles.dropdown}
-            placeholder="Select a model"
+            placeholder={placeholder}
             value={selectedModel?.name || ''}
             selectedOptions={selectedModelId ? [selectedModelId] : []}
             onOptionSelect={(_, data) => {

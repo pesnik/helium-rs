@@ -12,21 +12,18 @@ import {
     tokens,
     shorthands,
     Text,
-    Badge,
     Button,
     Spinner,
 } from '@fluentui/react-components';
 import { AISettingsPanel } from './AISettingsPanel';
 import {
     Settings24Regular,
-    LockClosed24Filled,
     ArrowDownload24Regular,
 } from '@fluentui/react-icons';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { AIChat } from './AIChat';
 import { ModeSelector } from './ModeSelector';
-import { ModelSelector } from './ModelSelector';
 import {
     AIMode,
     ChatMessage,
@@ -112,6 +109,9 @@ export const AIPanel = ({
     const [selectedModelId, setSelectedModelId] = useState<string | undefined>();
     const [showSettings, setShowSettings] = useState(false);
 
+    // Active provider - determines which models are shown in ModelSelector
+    const [activeProvider, setActiveProvider] = useState<ModelProvider | undefined>();
+
     // Download state
     const [downloadProgress, setDownloadProgress] = useState<{ status: string; progress: number; modelId: string } | undefined>(undefined);
 
@@ -163,10 +163,45 @@ export const AIPanel = ({
 
                 setAvailableModels(allModels);
 
-                // Select default model for current mode
-                const defaultModel = getDefaultModelForMode(mode, allModels);
-                if (defaultModel) {
-                    setSelectedModelId(defaultModel.id);
+                // Check for saved defaults
+                const savedProvider = localStorage.getItem('defaultAIProvider') as ModelProvider | null;
+                const savedModelId = localStorage.getItem('defaultAIModel');
+
+                // Priority: 1) Saved model, 2) Saved provider's first model, 3) Default model for mode
+                let modelToSelect: ModelConfig | null = null;
+                let providerToUse: ModelProvider | undefined = undefined;
+
+                // Try to use saved model first
+                if (savedModelId) {
+                    modelToSelect = allModels.find(m => m.id === savedModelId) || null;
+                    if (modelToSelect) {
+                        providerToUse = modelToSelect.provider;
+                    }
+                }
+
+                // If no saved model, try saved provider's first available model
+                if (!modelToSelect && savedProvider) {
+                    modelToSelect = allModels.find(m =>
+                        m.provider === savedProvider && m.isAvailable
+                    ) || allModels.find(m => m.provider === savedProvider) || null;
+
+                    if (modelToSelect) {
+                        providerToUse = savedProvider;
+                    }
+                }
+
+                // Fallback to default model for mode
+                if (!modelToSelect) {
+                    modelToSelect = getDefaultModelForMode(mode, allModels);
+                    if (modelToSelect) {
+                        providerToUse = modelToSelect.provider;
+                    }
+                }
+
+                // Apply the selected model and provider
+                if (modelToSelect && providerToUse) {
+                    setSelectedModelId(modelToSelect.id);
+                    setActiveProvider(providerToUse);
                 }
             } catch (error) {
                 console.error('Failed to initialize AI panel:', error);
@@ -183,13 +218,46 @@ export const AIPanel = ({
         const defaultModel = getDefaultModelForMode(mode, availableModels);
         if (defaultModel) {
             setSelectedModelId(defaultModel.id);
+            // Update active provider when model changes
+            setActiveProvider(defaultModel.provider);
         }
     }, [mode, availableModels]);
+
+    // Filter models based on active provider
+    const filteredModels = React.useMemo(() => {
+        if (!activeProvider) return availableModels;
+        return availableModels.filter(m => m.provider === activeProvider);
+    }, [availableModels, activeProvider]);
+
+    // Get unique providers from available models
+    const availableProviders = React.useMemo(() => {
+        const providers = new Set(availableModels.map(m => m.provider));
+        return Array.from(providers);
+    }, [availableModels]);
 
     const handleUpdateConfig = (newConfig: ModelConfig) => {
         // Update the model config in available models list
         setAvailableModels(prev => prev.map(m => m.id === newConfig.id ? newConfig : m));
         // Also update local cache if needed, but for now just state is enough
+    };
+
+    const handleProviderChange = (newProvider: ModelProvider) => {
+        setActiveProvider(newProvider);
+
+        // Auto-select first available model from the new provider
+        const firstModelOfProvider = availableModels.find(m =>
+            m.provider === newProvider && m.isAvailable
+        );
+
+        if (firstModelOfProvider) {
+            setSelectedModelId(firstModelOfProvider.id);
+        } else {
+            // If no available model, select the first one (even if not installed)
+            const anyModelOfProvider = availableModels.find(m => m.provider === newProvider);
+            if (anyModelOfProvider) {
+                setSelectedModelId(anyModelOfProvider.id);
+            }
+        }
     };
 
     const handleSendMessage = async (content: string) => {
@@ -338,17 +406,11 @@ export const AIPanel = ({
                     />
                 </div>
                 <div className={styles.headerRight}>
-                    <ModelSelector
-                        models={availableModels}
-                        selectedModelId={selectedModelId}
-                        onModelChange={setSelectedModelId}
-                        disabled={isLoading || availableModels.length === 0 || showSettings}
-                    />
                     <Button
                         appearance="subtle"
                         icon={<Settings24Regular />}
                         size="small"
-                        title="AI Settings"
+                        title="Configure AI Provider & Model"
                         onClick={() => setShowSettings(!showSettings)}
                         style={{ color: 'white' }}
                     />
@@ -431,8 +493,10 @@ export const AIPanel = ({
                 <AISettingsPanel
                     modelConfig={availableModels.find(m => m.id === selectedModelId)!}
                     allModels={availableModels}
+                    activeProvider={activeProvider}
                     onUpdateConfig={handleUpdateConfig}
                     onSelectModel={setSelectedModelId}
+                    onProviderChange={handleProviderChange}
                     onClose={() => setShowSettings(false)}
                     open={showSettings}
                     downloadProgress={downloadProgress}

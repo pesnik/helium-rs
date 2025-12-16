@@ -133,8 +133,10 @@ const useStyles = makeStyles({
 interface AISettingsPanelProps {
     modelConfig: ModelConfig;
     allModels: ModelConfig[];
+    activeProvider?: ModelProvider;
     onUpdateConfig: (newConfig: ModelConfig) => void;
     onSelectModel: (modelId: string) => void;
+    onProviderChange: (provider: ModelProvider) => void;
     onDownloadModel?: (modelId: string, provider: ModelProvider, endpoint?: string) => void;
     downloadProgress?: { modelId: string; status: string; progress: number; total?: number; completed?: number };
     onClose: () => void;
@@ -144,8 +146,10 @@ interface AISettingsPanelProps {
 export function AISettingsPanel({
     modelConfig,
     allModels,
+    activeProvider,
     onUpdateConfig,
     onSelectModel,
+    onProviderChange,
     onDownloadModel,
     downloadProgress,
     onClose,
@@ -158,8 +162,13 @@ export function AISettingsPanel({
     const [params, setParams] = React.useState<ModelParameters>(modelConfig?.parameters || {
         temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true
     });
-    const [selectedProvider, setSelectedProvider] = React.useState<string>(modelConfig?.provider || 'ollama');
     const [customEndpoint, setCustomEndpoint] = React.useState<string>('http://127.0.0.1:11434');
+
+    // Track if current config is set as default
+    const [isDefault, setIsDefault] = React.useState<boolean>(
+        localStorage.getItem('defaultAIProvider') === activeProvider &&
+        localStorage.getItem('defaultAIModel') === modelConfig?.id
+    );
 
     // Safety check - if no config, don't render (but hooks must run first)
     if (!modelConfig) {
@@ -167,20 +176,25 @@ export function AISettingsPanel({
     }
     // ... existing ...
 
-    // Combine installed models with known models
+    // Filter models by active provider (now coming from parent)
     const displayModels = React.useMemo(() => {
-        // Convert selectedProvider string to enum for comparison
-        const providerEnum = selectedProvider as ModelProvider;
-        return allModels.filter(m => m.provider === providerEnum);
-    }, [allModels, selectedProvider]);
+        if (!activeProvider) return allModels;
+        return allModels.filter(m => m.provider === activeProvider);
+    }, [allModels, activeProvider]);
 
     // Sync state when modelConfig changes
     React.useEffect(() => {
         if (modelConfig) {
             setParams(modelConfig.parameters);
-            setSelectedProvider(modelConfig.provider);
         }
     }, [modelConfig]);
+
+    // Sync isDefault when activeProvider or modelConfig changes
+    React.useEffect(() => {
+        const savedProvider = localStorage.getItem('defaultAIProvider');
+        const savedModel = localStorage.getItem('defaultAIModel');
+        setIsDefault(savedProvider === activeProvider && savedModel === modelConfig?.id);
+    }, [activeProvider, modelConfig?.id]);
 
     const handleParamChange = (key: keyof ModelParameters, value: any) => {
         if (!modelConfig) return;
@@ -229,17 +243,21 @@ export function AISettingsPanel({
                                 {selectedTab === 'general' && (
                                     <>
                                         <div>
-                                            <Label weight="semibold">Provider</Label>
+                                            <Label weight="semibold">AI Provider</Label>
+                                            <Text size={200} block style={{ color: tokens.colorNeutralForeground3, marginBottom: '8px' }}>
+                                                Choose your AI engine. Models below are filtered by this provider.
+                                            </Text>
                                             <div style={{ marginTop: '8px' }}>
                                                 <Dropdown
                                                     value={
-                                                        selectedProvider === 'transformerjs' ? 'Transformer.js (In-Browser)' :
-                                                            selectedProvider === 'ollama' ? 'Ollama (Local Server)' :
-                                                                selectedProvider === 'candle' ? 'Embedded AI (Rust/Candle)' :
-                                                                    'OpenAI Compatible'
+                                                        activeProvider === 'transformerjs' ? 'Transformer.js (In-Browser)' :
+                                                            activeProvider === 'ollama' ? 'Ollama (Local Server)' :
+                                                                activeProvider === 'candle' ? 'Embedded AI (Rust/Candle)' :
+                                                                    activeProvider === 'openai-compatible' ? 'OpenAI Compatible' :
+                                                                        'Select Provider'
                                                     }
-                                                    selectedOptions={[selectedProvider]}
-                                                    onOptionSelect={(_, data) => setSelectedProvider(data.optionValue as ModelProvider)}
+                                                    selectedOptions={activeProvider ? [activeProvider] : []}
+                                                    onOptionSelect={(_, data) => onProviderChange(data.optionValue as ModelProvider)}
                                                     style={{ width: '100%' }}
                                                 >
                                                     <Option value="candle" text="Embedded AI (Rust/Candle)">
@@ -258,33 +276,39 @@ export function AISettingsPanel({
                                             </div>
 
                                             {/* Endpoint Configuration */}
-                                            {(selectedProvider === 'ollama' || selectedProvider === 'openai-compatible') && (
+                                            {(activeProvider === 'ollama' || activeProvider === 'openai-compatible') && (
                                                 <div style={{ marginTop: '12px' }}>
                                                     <Label size="small">Endpoint URL</Label>
                                                     <Input
                                                         value={customEndpoint}
                                                         onChange={(e) => setCustomEndpoint(e.target.value)}
-                                                        placeholder={selectedProvider === 'ollama' ? "http://127.0.0.1:11434" : "http://localhost:1234/v1"}
+                                                        placeholder={activeProvider === 'ollama' ? "http://127.0.0.1:11434" : "http://localhost:1234/v1"}
                                                         style={{ width: '100%', marginTop: '4px' }}
                                                     />
                                                     <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                                                        {selectedProvider === 'ollama' ? 'Custom port (e.g. 11434) for local Ollama instance.' : 'URL for local LLM server (compatible with OpenAI API).'}
+                                                        {activeProvider === 'ollama' ? 'Custom port (e.g. 11434) for local Ollama instance.' : 'URL for local LLM server (compatible with OpenAI API).'}
                                                     </Text>
                                                 </div>
                                             )}
                                         </div>
 
                                         <div>
-                                            <Label weight="semibold" className={styles.sectionTitle}>Model Selection</Label>
+                                            <Label weight="semibold" className={styles.sectionTitle}>
+                                                Available Models {activeProvider && `(${activeProvider})`}
+                                            </Label>
                                             <div className={styles.cardGrid}>
                                                 {displayModels.length === 0 ? (
                                                     <Text style={{ padding: '20px', color: tokens.colorNeutralForeground3 }}>
-                                                        No models found for {selectedProvider}.
-                                                        Total models available: {allModels.length}
+                                                        {activeProvider
+                                                            ? `No models found for ${activeProvider}. Try selecting a different provider above.`
+                                                            : 'Please select a provider above to see available models.'}
                                                     </Text>
                                                 ) : (
                                                     displayModels.map((model) => {
                                                         const isDownloading = downloadProgress?.modelId === model.modelId && downloadProgress?.status === 'downloading';
+                                                        const isDefaultModel =
+                                                            localStorage.getItem('defaultAIProvider') === activeProvider &&
+                                                            localStorage.getItem('defaultAIModel') === model.id;
 
                                                         return (
                                                             <div
@@ -331,7 +355,12 @@ export function AISettingsPanel({
                                                                         </div>
                                                                     )}
                                                                 </div>
-                                                                <Text weight="semibold" block style={{ marginTop: '4px' }}>{model.name}</Text>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                                                    <Text weight="semibold">{model.name}</Text>
+                                                                    {isDefaultModel && (
+                                                                        <Badge appearance="filled" color="brand" size="small">Default</Badge>
+                                                                    )}
+                                                                </div>
 
                                                                 {isDownloading ? (
                                                                     <div className={styles.progressContainer}>
@@ -356,14 +385,14 @@ export function AISettingsPanel({
                                             <Button
                                                 style={{ marginTop: '16px', width: '100%' }}
                                                 icon={<ArrowDownload24Regular />}
-                                                disabled={selectedProvider === 'transformerjs' || selectedProvider === 'candle'}
+                                                disabled={activeProvider === 'transformerjs' || activeProvider === 'candle'}
                                                 onClick={() => {
-                                                    if (selectedProvider === 'candle' && onDownloadModel) {
+                                                    if (activeProvider === 'candle' && onDownloadModel) {
                                                         onDownloadModel('qwen2.5-coder:0.5b', ModelProvider.Candle); // Trigger download
                                                     }
                                                 }}
                                             >
-                                                {selectedProvider === 'candle' ? 'Download Embedded Model (Automated)' : 'Download New Model from Hub'}
+                                                {activeProvider === 'candle' ? 'Download Embedded Model (Automated)' : 'Download New Model from Hub'}
                                             </Button>
                                         </div>
                                     </>
@@ -469,6 +498,25 @@ export function AISettingsPanel({
                         <Button appearance="outline" icon={<Play24Regular />}>
                             Test Inference
                         </Button>
+                        {modelConfig && activeProvider && (
+                            <Button
+                                appearance={isDefault ? "primary" : "outline"}
+                                onClick={() => {
+                                    if (isDefault) {
+                                        localStorage.removeItem('defaultAIProvider');
+                                        localStorage.removeItem('defaultAIModel');
+                                        setIsDefault(false);
+                                    } else {
+                                        localStorage.setItem('defaultAIProvider', activeProvider);
+                                        localStorage.setItem('defaultAIModel', modelConfig.id);
+                                        setIsDefault(true);
+                                    }
+                                }}
+                                style={{ marginLeft: 'auto' }}
+                            >
+                                {isDefault ? '⭐ Default' : 'Set as Default'}
+                            </Button>
+                        )}
                         <Button appearance="primary" onClick={onClose} icon={<Save24Regular />}>
                             Save
                         </Button>
