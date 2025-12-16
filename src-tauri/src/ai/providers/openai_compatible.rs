@@ -66,18 +66,46 @@ pub async fn run_openai_compatible_inference(
     let url = format!("{}/chat/completions", endpoint);
 
     // Convert messages to OpenAI format
-    let openai_messages: Vec<OpenAIMessage> = request
-        .messages
-        .iter()
-        .map(|m| OpenAIMessage {
-            role: match m.role {
-                MessageRole::User => "user".to_string(),
-                MessageRole::Assistant => "assistant".to_string(),
-                MessageRole::System => "system".to_string(),
-            },
-            content: m.content.clone(),
-        })
-        .collect();
+    // Handle system messages specially - merge them into first user message
+    // This ensures roles alternate (user/assistant/user/assistant) as required by llama-server
+    let mut openai_messages: Vec<OpenAIMessage> = Vec::new();
+    let mut system_prompts: Vec<String> = Vec::new();
+
+    for (i, m) in request.messages.iter().enumerate() {
+        match m.role {
+            MessageRole::System => {
+                // Collect system messages
+                system_prompts.push(m.content.clone());
+            }
+            MessageRole::User => {
+                // If this is the first user message and we have system prompts, prepend them
+                if i == 0 || (openai_messages.is_empty() && !system_prompts.is_empty()) {
+                    let mut content = String::new();
+                    if !system_prompts.is_empty() {
+                        content.push_str(&system_prompts.join("\n\n"));
+                        content.push_str("\n\n");
+                        system_prompts.clear(); // Clear after using
+                    }
+                    content.push_str(&m.content);
+                    openai_messages.push(OpenAIMessage {
+                        role: "user".to_string(),
+                        content,
+                    });
+                } else {
+                    openai_messages.push(OpenAIMessage {
+                        role: "user".to_string(),
+                        content: m.content.clone(),
+                    });
+                }
+            }
+            MessageRole::Assistant => {
+                openai_messages.push(OpenAIMessage {
+                    role: "assistant".to_string(),
+                    content: m.content.clone(),
+                });
+            }
+        }
+    }
 
     let openai_request = OpenAIChatRequest {
         model: request.model_config.model_id.clone(),

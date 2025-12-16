@@ -319,10 +319,18 @@ export const AIPanel = ({
             // Enable streaming for all providers (Candle + Ollama)
             // Ideally we check if modelConfig.parameters.stream is true, but we know our backend implementations stream.
             const isStreaming = true;
-            let assistantMsgId = '';
+            let assistantMsgId = `msg-${Date.now()}-ai`;
 
-            // Don't create placeholder yet - wait for first chunk to avoid empty bubble
+            // Create a "thinking" placeholder immediately for visual feedback
             let streamedContent = '';
+            const thinkingMessage: ChatMessage = {
+                id: assistantMsgId,
+                role: MessageRole.Assistant,
+                content: '💭 Thinking...',
+                timestamp: Date.now(),
+                isStreaming: true,
+            };
+            setMessages((prev) => [...prev, thinkingMessage]);
 
             // Add saved endpoint for OpenAI-compatible and Ollama providers
             const modelConfigWithEndpoint = {
@@ -345,25 +353,22 @@ export const AIPanel = ({
                     downloadMsgId = ''; // Clear it so we only remove once
                 }
 
-                // Create placeholder on first chunk to avoid empty bubble
-                if (!assistantMsgId) {
-                    assistantMsgId = `msg-${Date.now()}-ai`;
-                    const assistantMessage: ChatMessage = {
-                        id: assistantMsgId,
-                        role: MessageRole.Assistant,
-                        content: chunk,
-                        timestamp: Date.now(),
-                    };
+                // On first chunk, replace the "thinking" message
+                if (streamedContent === '') {
                     streamedContent = chunk;
-                    setMessages((prev) => [...prev, assistantMessage]);
+                    setMessages((prev) => prev.map(msg =>
+                        msg.id === assistantMsgId
+                            ? { ...msg, content: chunk, isStreaming: true }
+                            : msg
+                    ));
                     return;
                 }
 
-                // Handle streaming chunk
+                // Handle subsequent streaming chunks
                 streamedContent += chunk;
                 setMessages((prev) => prev.map(msg =>
                     msg.id === assistantMsgId
-                        ? { ...msg, content: streamedContent }
+                        ? { ...msg, content: streamedContent, isStreaming: true }
                         : msg
                 ));
             } : undefined);
@@ -373,10 +378,10 @@ export const AIPanel = ({
                 if (downloadMsgId) {
                     setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
                 }
-                // Final update for streaming (ensure exact final state)
+                // Final update for streaming (ensure exact final state and remove streaming flag)
                 setMessages((prev) => prev.map(msg =>
                     msg.id === assistantMsgId
-                        ? response.message
+                        ? { ...response.message, isStreaming: false }
                         : msg
                 ));
             } else {

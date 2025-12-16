@@ -25,8 +25,10 @@ async function loadTransformers() {
 
         // Configure environment for browser execution
         // Disable local model checking to prevent FS errors
-        transformersModule.env.allowLocalModels = false;
-        transformersModule.env.useBrowserCache = true;
+        if (transformersModule.env) {
+            transformersModule.env.allowLocalModels = false;
+            transformersModule.env.useBrowserCache = true;
+        }
     }
     return transformersModule;
 }

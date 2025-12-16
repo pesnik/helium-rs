@@ -197,14 +197,17 @@ export async function runInference(
             });
         }
 
+        console.log('[ai-service] Calling backend with provider:', request.modelConfig.provider);
+        console.log('[ai-service] Endpoint:', request.modelConfig.endpoint);
         const response = await invoke<InferenceResponse>('run_ai_inference', {
             request: requestWithSystem,
         });
+        console.log('[ai-service] Got response from backend:', response);
 
         if (unlisten) unlisten();
         return response;
     } catch (error: any) {
-        console.error('Inference failed:', error);
+        console.error('[ai-service] Inference failed:', error);
         throw new Error(error || 'Inference failed');
     }
 }
