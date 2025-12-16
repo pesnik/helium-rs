@@ -76,7 +76,7 @@ export function buildFileSystemContext(context: FileSystemContext): string {
             });
         }
 
-        if (Object.keys(context.scanData.fileTypes).length > 0) {
+        if (context.scanData.fileTypes && Object.keys(context.scanData.fileTypes).length > 0) {
             parts.push('\nFile Type Distribution (Deep Scan):');
             const sortedTypes = Object.entries(context.scanData.fileTypes)
                 .sort(([, a], [, b]) => b - a)

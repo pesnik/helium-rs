@@ -173,10 +173,14 @@ export function AISettingsPanel({
     );
 
     // Track if current config is set as default
-    const [isDefault, setIsDefault] = React.useState<boolean>(
-        localStorage.getItem('defaultAIProvider') === activeProvider &&
-        localStorage.getItem('defaultAIModel') === modelConfig?.id
-    );
+    const [isDefault, setIsDefault] = React.useState<boolean>(() => {
+        const savedProvider = localStorage.getItem('defaultAIProvider');
+        const savedModel = localStorage.getItem('defaultAIModel');
+        const isProviderMatch = savedProvider === activeProvider;
+        const isModelMatch = savedModel === modelConfig?.id ||
+            (savedModel === 'openai-compatible-generic' && activeProvider === ModelProvider.OpenAICompatible);
+        return isProviderMatch && isModelMatch;
+    });
 
     // Test inference state
     const [isTesting, setIsTesting] = React.useState<boolean>(false);
@@ -205,8 +209,30 @@ export function AISettingsPanel({
     React.useEffect(() => {
         const savedProvider = localStorage.getItem('defaultAIProvider');
         const savedModel = localStorage.getItem('defaultAIModel');
-        setIsDefault(savedProvider === activeProvider && savedModel === modelConfig?.id);
+        const isProviderMatch = savedProvider === activeProvider;
+        const isModelMatch = savedModel === modelConfig?.id ||
+            (savedModel === 'openai-compatible-generic' && activeProvider === ModelProvider.OpenAICompatible);
+        setIsDefault(isProviderMatch && isModelMatch);
     }, [activeProvider, modelConfig?.id]);
+
+    // Update customEndpoint when activeProvider changes
+    React.useEffect(() => {
+        if (activeProvider === ModelProvider.OpenAICompatible) {
+            const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
+            if (savedEndpoint && savedEndpoint.includes('/v1')) {
+                setCustomEndpoint(savedEndpoint);
+            } else {
+                setCustomEndpoint('http://127.0.0.1:8080/v1');
+            }
+        } else if (activeProvider === ModelProvider.Ollama) {
+            const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
+            if (savedEndpoint && !savedEndpoint.includes('/v1')) {
+                setCustomEndpoint(savedEndpoint);
+            } else {
+                setCustomEndpoint('http://127.0.0.1:11434');
+            }
+        }
+    }, [activeProvider]);
 
     const handleParamChange = (key: keyof ModelParameters, value: any) => {
         if (!modelConfig) return;
@@ -272,7 +298,7 @@ export function AISettingsPanel({
             );
 
             const finalResponse = response.message.content || streamedResponse;
-            setTestResult(finalResponse);
+            // Don't set inline result for success, only show toast
 
             dispatchToast(
                 <Toast>
@@ -635,10 +661,19 @@ export function AISettingsPanel({
                                     if (isDefault) {
                                         localStorage.removeItem('defaultAIProvider');
                                         localStorage.removeItem('defaultAIModel');
+                                        localStorage.removeItem('defaultAIEndpoint');
                                         setIsDefault(false);
                                     } else {
                                         localStorage.setItem('defaultAIProvider', activeProvider);
-                                        localStorage.setItem('defaultAIModel', modelConfig.id);
+                                        // For OpenAI-compatible with no models, use a generic model ID
+                                        const modelIdToSave = (activeProvider === ModelProvider.OpenAICompatible && displayModels.length === 0)
+                                            ? 'openai-compatible-generic'
+                                            : modelConfig.id;
+                                        localStorage.setItem('defaultAIModel', modelIdToSave);
+                                        // Save endpoint for OpenAI-compatible and Ollama providers
+                                        if (activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama) {
+                                            localStorage.setItem('defaultAIEndpoint', customEndpoint);
+                                        }
                                         setIsDefault(true);
                                     }
                                 }}
