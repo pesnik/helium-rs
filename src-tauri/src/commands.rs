@@ -44,6 +44,7 @@ struct ScanProgress {
     path: String, // Just the root path being scanned
     count: u64,
     size: u64,
+    errors: u64,
 }
 
 #[command]
@@ -88,6 +89,7 @@ async fn scan_dir_internal(app: AppHandle, path: String, force_refresh: bool) ->
     let stats = Arc::new(ScanStats {
         scanned_files: AtomicU64::new(0),
         total_size: AtomicU64::new(0),
+        errors: AtomicU64::new(0),
     });
 
     let is_done = Arc::new(AtomicBool::new(false));
@@ -102,20 +104,24 @@ async fn scan_dir_internal(app: AppHandle, path: String, force_refresh: bool) ->
     tauri::async_runtime::spawn(async move {
         // Emit every 100ms
         loop {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Check BEFORE sleeping to avoid emitting after done
             if cancel_clone.load(Ordering::Relaxed) || is_done_clone.load(Ordering::Relaxed) {
                 break;
             }
-            
+
             let count = stats_clone.scanned_files.load(Ordering::Relaxed);
             let size = stats_clone.total_size.load(Ordering::Relaxed);
-            
+            let errors = stats_clone.errors.load(Ordering::Relaxed);
+
             let payload = ScanProgress {
                  path: path_report.clone(),
                  count,
-                 size
+                 size,
+                 errors
             };
             let _ = app_handle.emit("scan-progress", payload);
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
     });
 

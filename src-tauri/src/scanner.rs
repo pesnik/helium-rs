@@ -18,6 +18,7 @@ pub struct FileNode {
 pub struct ScanStats {
     pub scanned_files: AtomicU64,
     pub total_size: AtomicU64,
+    pub errors: AtomicU64,
 }
 
 pub fn scan_directory(
@@ -249,16 +250,24 @@ fn get_deep_stats(
                  if c.load(Ordering::Relaxed) { return Err("Cancelled".to_string()); }
              }
         }
-        
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() {
-                let s = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                size += s;
-                count += 1;
-                
+
+        match entry {
+            Ok(entry) => {
+                if entry.file_type().is_file() {
+                    let s = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    size += s;
+                    count += 1;
+
+                    if let Some(st) = &stats {
+                        st.scanned_files.fetch_add(1, Ordering::Relaxed);
+                        st.total_size.fetch_add(s, Ordering::Relaxed);
+                    }
+                }
+            }
+            Err(_e) => {
+                // Track permission denied and other errors
                 if let Some(st) = &stats {
-                    st.scanned_files.fetch_add(1, Ordering::Relaxed);
-                    st.total_size.fetch_add(s, Ordering::Relaxed);
+                    st.errors.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }

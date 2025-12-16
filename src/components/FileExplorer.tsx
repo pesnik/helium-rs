@@ -48,6 +48,7 @@ import {
     DismissRegular,
     SparkleRegular,
     BroomRegular,
+    WarningRegular,
 } from '@fluentui/react-icons';
 import { DiskUsageChart } from './DiskUsageChart';
 import { BreadcrumbPath } from './BreadcrumbPath';
@@ -103,6 +104,7 @@ interface ScanProgressPayload {
     path: string;
     count: number;
     size: number;
+    errors: number;
 }
 
 const ScanProgressBanner = ({ progress, onCancel, speed }: {
@@ -118,41 +120,159 @@ const ScanProgressBanner = ({ progress, onCancel, speed }: {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    return (
-        <div style={{
-            position: 'absolute',
-            top: '80px', // Below toolbar
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: '450px',
-            backgroundColor: 'var(--colorNeutralBackground1)',
-            borderRadius: '8px',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.14)',
-            padding: '16px',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px'
-        }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    // Determine if screen is wide (desktop) or compact
+    const [isWideScreen, setIsWideScreen] = useState(window.innerWidth > 1024);
+
+    useEffect(() => {
+        const handleResize = () => {
+            setIsWideScreen(window.innerWidth > 1024);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const hasErrors = progress.errors > 0;
+
+    if (isWideScreen) {
+        // Full-width slim banner for desktop/laptop
+        return (
+            <div style={{
+                width: '100%',
+                backgroundColor: 'var(--colorNeutralBackground3)',
+                borderRadius: '6px',
+                padding: '10px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '16px',
+                border: '1px solid var(--colorNeutralStroke1)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            }}>
                 <Spinner size="tiny" />
-                <Text weight="medium" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    Scanning: {progress.path}
+
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                    <Text weight="medium" style={{ flexShrink: 0 }}>
+                        Scanning
+                    </Text>
+
+                    <Text
+                        style={{
+                            flex: 1,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            color: 'var(--colorNeutralForeground2)',
+                            fontSize: '13px'
+                        }}
+                        title={progress.path}
+                    >
+                        {progress.path}
+                    </Text>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    flexShrink: 0
+                }}>
+                    <div style={{ display: 'flex', gap: '16px', fontSize: '13px', alignItems: 'center' }}>
+                        <Text style={{ color: 'var(--colorNeutralForeground2)' }}>
+                            {progress.count.toLocaleString()} items
+                        </Text>
+                        <Text style={{ color: 'var(--colorNeutralForeground2)' }}>
+                            {formatSize(progress.size)}
+                        </Text>
+                        <Text style={{ color: 'var(--colorNeutralForeground2)' }}>
+                            {Math.round(speed)}/sec
+                        </Text>
+                        {hasErrors && (
+                            <Tooltip
+                                content={`${progress.errors.toLocaleString()} directories or files could not be accessed due to permission restrictions. The displayed size represents accessible files only.`}
+                                relationship="description"
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--colorPaletteYellowForeground1)' }}>
+                                    <WarningRegular fontSize={16} />
+                                    <Text style={{ color: 'var(--colorPaletteYellowForeground1)', fontSize: '13px' }}>
+                                        {progress.errors.toLocaleString()} restricted
+                                    </Text>
+                                </div>
+                            </Tooltip>
+                        )}
+                    </div>
+
+                    <div style={{ width: '100px' }}>
+                        <ProgressBar thickness="medium" />
+                    </div>
+
+                    <Button
+                        appearance="subtle"
+                        icon={<DismissRegular />}
+                        onClick={onCancel}
+                        size="small"
+                    >
+                        Cancel
+                    </Button>
+                </div>
+            </div>
+        );
+    } else {
+        // Compact corner toast for smaller screens
+        return (
+            <div style={{
+                position: 'fixed',
+                bottom: '20px',
+                right: '20px',
+                width: '320px',
+                backgroundColor: 'var(--colorNeutralBackground1)',
+                borderRadius: '8px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+                padding: '14px',
+                zIndex: 1000,
+                border: '1px solid var(--colorNeutralStroke1)',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <Spinner size="tiny" />
+                    <Text weight="semibold" size={300}>Scanning folder</Text>
+                    <Button
+                        appearance="subtle"
+                        icon={<DismissRegular />}
+                        onClick={onCancel}
+                        size="small"
+                        style={{ marginLeft: 'auto' }}
+                    />
+                </div>
+
+                <Text
+                    size={200}
+                    style={{
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        color: 'var(--colorNeutralForeground2)',
+                        marginBottom: '8px'
+                    }}
+                    title={progress.path}
+                >
+                    {progress.path}
                 </Text>
-            </div>
 
-            <ProgressBar value={undefined} /> {/* Indeterminate for now since we don't know total */}
+                <ProgressBar style={{ marginBottom: '8px' }} />
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Caption1 style={{ color: 'var(--colorNeutralForeground2)' }}>
-                    {progress.count.toLocaleString()} items • {formatSize(progress.size)} • {Math.round(speed)} items/sec
-                </Caption1>
-                <Button appearance="subtle" icon={<DismissRegular />} onClick={onCancel} size="small">
-                    Cancel
-                </Button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <Caption1 style={{ color: 'var(--colorNeutralForeground2)' }}>
+                        {progress.count.toLocaleString()} items • {formatSize(progress.size)} • {Math.round(speed)}/sec
+                    </Caption1>
+                    {hasErrors && (
+                        <Caption1 style={{ color: 'var(--colorPaletteYellowForeground1)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <WarningRegular fontSize={14} />
+                            {progress.errors.toLocaleString()} items restricted
+                        </Caption1>
+                    )}
+                </div>
             </div>
-        </div>
-    );
+        );
+    }
 };
 
 interface FileExplorerProps {
@@ -181,11 +301,12 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
     const [isScanning, setIsScanning] = useState(false);
     const [scanSpeed, setScanSpeed] = useState(0);
     const lastProgressRef = useRef<{ count: number, time: number } | null>(null);
+    const currentScanPathRef = useRef<string | null>(null); // Track which path is being scanned
+    const scanCompletedRef = useRef<boolean>(false); // Flag to prevent race condition
 
     // Context synchronization
     React.useEffect(() => {
         if (onContextChange) {
-            console.log('[FileExplorer] Context changing to:', state.path); // DEBUG
             const selectedArray = Array.from(selectedItems).map(id => String(id));
             const visibleFiles = state.data?.children?.map(c => ({
                 name: c.name,
@@ -269,6 +390,10 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
     ];
 
     const fetchData = async (path: string, forceRefresh: boolean = false) => {
+        // Set the current scan path and reset completion flag
+        currentScanPathRef.current = path;
+        scanCompletedRef.current = false;
+
         setState(prev => ({ ...prev, loading: true, error: null }));
         setIsScanning(true);
         setScanProgress(null);
@@ -279,6 +404,11 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
             if (path === '') {
                 // Fetch Drives
                 const drives = await invoke<FileNode[]>('get_drives');
+
+                // Mark scan as completed BEFORE clearing state
+                scanCompletedRef.current = true;
+                currentScanPathRef.current = null;
+
                 setState(prev => ({
                     ...prev,
                     loading: false,
@@ -295,18 +425,39 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                     path: ''
                 }));
                 setSelectedItems(new Set());
+                setIsScanning(false);
+                setScanProgress(null);
+                setScanSpeed(0);
                 return;
             }
 
             const command = forceRefresh ? 'refresh_scan' : 'scan_dir';
             const data = await invoke<FileNode>(command, { path });
+
+            // Mark scan as completed BEFORE clearing state - this prevents race condition
+            scanCompletedRef.current = true;
+            currentScanPathRef.current = null;
+
+            // Immediately clear scanning state when data arrives
+            setIsScanning(false);
+            setScanProgress(null);
+            setScanSpeed(0);
+            lastProgressRef.current = null;
+
+            // Then update the UI with the new data
             setState(prev => ({ ...prev, loading: false, data, path }));
             setSelectedItems(new Set()); // Clear selection on navigate
         } catch (e: unknown) {
+            // Mark as completed even on error
+            scanCompletedRef.current = true;
+            currentScanPathRef.current = null;
+
             setState(prev => ({ ...prev, loading: false, error: String(e) }));
-        } finally {
+            // Clear scanning state on error too
             setIsScanning(false);
             setScanProgress(null);
+            setScanSpeed(0);
+            lastProgressRef.current = null;
         }
     };
 
@@ -322,14 +473,27 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
         fetchData(initialPath);
 
         const unlistenPromise = listen<ScanProgressPayload>('scan-progress', (event) => {
+            // CRITICAL: Ignore progress events after scan is completed or for different paths
+            if (scanCompletedRef.current) {
+                return;
+            }
+
+            if (currentScanPathRef.current !== event.payload.path) {
+                return;
+            }
+
             const now = Date.now();
             const currentCount = event.payload.count;
 
             if (lastProgressRef.current) {
                 const deltaCount = currentCount - lastProgressRef.current.count;
                 const deltaTime = (now - lastProgressRef.current.time) / 1000;
-                if (deltaTime > 0.5) { // Update speed every 500ms approx
-                    setScanSpeed(deltaCount / deltaTime);
+                if (deltaTime > 0.3) { // Update speed every 300ms for smoother updates
+                    const newSpeed = deltaCount / deltaTime;
+                    // Only update speed if it's meaningful (avoid showing 0 during scanning)
+                    if (newSpeed > 0) {
+                        setScanSpeed(newSpeed);
+                    }
                     lastProgressRef.current = { count: currentCount, time: now };
                 }
             } else {
@@ -441,10 +605,15 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
     };
 
     const handleCancelScan = async () => {
+        // Mark as completed to stop accepting progress events
+        scanCompletedRef.current = true;
+        currentScanPathRef.current = null;
+
         await invoke('cancel_scan');
         setIsScanning(false);
         setScanProgress(null);
-        // The fetchData's finally block will also reset scanning state once the backend command completes/errors out.
+        setScanSpeed(0);
+        lastProgressRef.current = null;
     };
 
     const items = state.data?.children || [];
