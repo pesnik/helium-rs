@@ -136,7 +136,6 @@ export const CleanerPanel = () => {
         try {
             await invoke('clean_junk', { paths: Array.from(selectedItems) });
         } catch (e) {
-            console.error("Failed to clean:", e);
             // Parse the error string into an array of individual errors
             const errorMessage = String(e);
             const errorLines = errorMessage.split('\n').filter(line => line.trim().length > 0);
