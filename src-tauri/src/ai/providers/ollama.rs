@@ -158,6 +158,9 @@ pub async fn run_ollama_inference(window: tauri::Window, request: &InferenceRequ
         .unwrap_or(DEFAULT_OLLAMA_ENDPOINT);
 
     let url = format!("{}/api/chat", endpoint);
+    println!("[Ollama] Using endpoint: {}", endpoint);
+    println!("[Ollama] Full URL: {}", url);
+    println!("[Ollama] Model: {}", request.model_config.model_id);
 
     // Convert messages to Ollama format and inject context
     // ... (context injection logic remains same, just copied for brevity or assumed helper)
@@ -251,6 +254,7 @@ pub async fn run_ollama_inference(window: tauri::Window, request: &InferenceRequ
     };
 
     let client = reqwest::Client::new();
+    println!("[Ollama] Sending request...");
     let response = client
         .post(&url)
         .json(&ollama_request)
@@ -263,10 +267,15 @@ pub async fn run_ollama_inference(window: tauri::Window, request: &InferenceRequ
             suggested_actions: Some(vec!["Check Ollama is running".to_string()]),
         })?;
 
-    if !response.status().is_success() {
+    let status = response.status();
+    println!("[Ollama] Response status: {}", status);
+
+    if !status.is_success() {
+        let error_body = response.text().await.unwrap_or_default();
+        println!("[Ollama] Error body: {}", error_body);
         return Err(AIError {
             error_type: AIErrorType::InferenceFailed,
-            message: format!("Ollama returned error: {}", response.status()),
+            message: format!("Ollama returned error: {} - {}", status, error_body),
             details: None,
             suggested_actions: Some(vec![
                 "Check if the model exists".to_string(),

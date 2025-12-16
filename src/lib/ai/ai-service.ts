@@ -28,13 +28,13 @@ import { getTemplateForMode, buildPrompt } from './prompts';
 // Known models registry
 export const KNOWN_MODELS: ModelConfig[] = [
     {
-        id: 'llama3.2:1b', name: 'Llama 3.2 1B', provider: ModelProvider.Ollama, isAvailable: false,
-        modelId: 'llama3.2:1b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
+        id: 'llama3.2:1B', name: 'Llama 3.2 1B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'llama3.2:1B', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
         recommendedFor: [AIMode.QA], sizeBytes: 1.3e9
     },
     {
-        id: 'llama3.2:3b', name: 'Llama 3.2 3B', provider: ModelProvider.Ollama, isAvailable: false,
-        modelId: 'llama3.2:3b', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
+        id: 'llama3.2:3B', name: 'Llama 3.2 3B', provider: ModelProvider.Ollama, isAvailable: false,
+        modelId: 'llama3.2:3B', parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
         recommendedFor: [AIMode.QA, AIMode.Agent], sizeBytes: 2.0e9
     },
     {
@@ -101,7 +101,12 @@ export async function getProvidersStatus(): Promise<ProviderStatus[]> {
             }
 
             const installedIds = new Set(ollamaStatus.availableModels.map(m => m.modelId));
+            console.log('[ai-service] Installed Ollama modelIds from backend:', Array.from(installedIds));
+
             KNOWN_MODELS.forEach(known => {
+                if (known.provider === ModelProvider.Ollama) {
+                    console.log('[ai-service] Checking KNOWN_MODEL:', known.modelId, 'isInstalled:', installedIds.has(known.modelId));
+                }
                 if (!installedIds.has(known.modelId)) {
                     ollamaStatus.availableModels.push(known);
                 }
