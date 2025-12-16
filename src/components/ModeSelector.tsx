@@ -2,8 +2,8 @@
 
 /**
  * Mode Selector Component
- * 
- * Allows users to switch between AI modes (QA, Summarize, Agent).
+ *
+ * Allows users to switch between AI modes (QA, Agent).
  */
 
 import React from 'react';

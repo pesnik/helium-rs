@@ -429,7 +429,7 @@ export function AISettingsPanel({
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
                                         {modelConfig.recommendedFor.map(mode => (
                                             <Text key={mode} weight="medium">
-                                                {mode === AIMode.QA ? 'QA Mode' : mode === AIMode.Summarize ? 'Summarize Mode' : 'Agent Mode'}
+                                                {mode === AIMode.QA ? 'QA Mode' : 'Agent Mode'}
                                             </Text>
                                         ))}
                                     </div>
