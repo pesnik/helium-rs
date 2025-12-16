@@ -474,6 +474,8 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                     <Button icon={<ArrowClockwiseRegular />} onClick={() => fetchData(state.path, true)} />
                 </Tooltip>
 
+                <div style={{ width: '1px', height: '20px', background: '#333' }} />
+
                 <Tooltip content="Toggle Disk Usage Chart" relationship="label">
                     <Button
                         icon={<DataPieRegular />}
@@ -486,17 +488,15 @@ export const FileExplorer = ({ onToggleAI, isAIPanelOpen, onContextChange }: Fil
                 <Tooltip content="System Cleaner" relationship="label">
                     <Button
                         icon={<BroomRegular />}
-                        appearance={viewMode === 'cleaner' ? "primary" : "subtle"}
+                        appearance={viewMode === 'cleaner' ? "primary" : "secondary"}
                         onClick={() => setViewMode(viewMode === 'cleaner' ? 'explorer' : 'cleaner')}
                     />
                 </Tooltip>
 
-                <div style={{ width: '1px', height: '20px', background: '#333' }} />
-
                 <Tooltip content="Toggle AI Assistant" relationship="label">
                     <Button
                         icon={<SparkleRegular />}
-                        appearance={isAIPanelOpen ? "primary" : "subtle"}
+                        appearance={isAIPanelOpen ? "primary" : "secondary"}
                         onClick={onToggleAI}
                         disabled={!onToggleAI}
                     />
