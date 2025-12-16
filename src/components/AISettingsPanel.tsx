@@ -382,18 +382,6 @@ export function AISettingsPanel({
                                                     })
                                                 )}
                                             </div>
-                                            <Button
-                                                style={{ marginTop: '16px', width: '100%' }}
-                                                icon={<ArrowDownload24Regular />}
-                                                disabled={activeProvider === 'transformerjs' || activeProvider === 'candle'}
-                                                onClick={() => {
-                                                    if (activeProvider === 'candle' && onDownloadModel) {
-                                                        onDownloadModel('qwen2.5-coder:0.5b', ModelProvider.Candle); // Trigger download
-                                                    }
-                                                }}
-                                            >
-                                                {activeProvider === 'candle' ? 'Download Embedded Model (Automated)' : 'Download New Model from Hub'}
-                                            </Button>
                                         </div>
                                     </>
                                 )}
