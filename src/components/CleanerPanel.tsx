@@ -88,6 +88,8 @@ export const CleanerPanel = () => {
     const [scanning, setScanning] = useState(false); // Visual state for scanning
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [cleanDialogOpen, setCleanDialogOpen] = useState(false);
+    const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+    const [cleaningErrors, setCleaningErrors] = useState<string[]>([]);
 
     // Initial scan
     useEffect(() => {
@@ -129,14 +131,21 @@ export const CleanerPanel = () => {
     const handleClean = async () => {
         setCleanDialogOpen(false);
         setLoading(true);
+        setCleaningErrors([]);
+
         try {
             await invoke('clean_junk', { paths: Array.from(selectedItems) });
-            // Re-scan to show updated state
-            await handleScan();
         } catch (e) {
             console.error("Failed to clean:", e);
-            alert("Failed to clean some items: " + e);
-            setLoading(false);
+            // Parse the error string into an array of individual errors
+            const errorMessage = String(e);
+            const errorLines = errorMessage.split('\n').filter(line => line.trim().length > 0);
+            setCleaningErrors(errorLines);
+            setErrorDialogOpen(true);
+        } finally {
+            // Always re-scan to show updated state, even if there were errors
+            // This ensures the UI reflects what was actually cleaned
+            await handleScan();
         }
     };
 
@@ -314,6 +323,51 @@ export const CleanerPanel = () => {
                                 onClick={handleClean}
                             >
                                 Delete
+                            </Button>
+                        </DialogActions>
+                    </DialogBody>
+                </DialogSurface>
+            </Dialog>
+
+            {/* Error Dialog */}
+            <Dialog open={errorDialogOpen} onOpenChange={(event, data) => setErrorDialogOpen(data.open)}>
+                <DialogSurface>
+                    <DialogBody>
+                        <DialogTitle>Cleaning Completed with Errors</DialogTitle>
+                        <DialogContent>
+                            <Text block style={{ marginBottom: '12px' }}>
+                                Some items could not be deleted due to permission restrictions or system protection:
+                            </Text>
+                            <div style={{
+                                maxHeight: '300px',
+                                overflowY: 'auto',
+                                backgroundColor: '#1a1a1a',
+                                padding: '12px',
+                                borderRadius: '4px',
+                                border: '1px solid #333',
+                            }}>
+                                {cleaningErrors.map((error, index) => (
+                                    <Text
+                                        key={index}
+                                        block
+                                        size={200}
+                                        style={{
+                                            color: '#ff6b6b',
+                                            marginBottom: '6px',
+                                            fontFamily: 'monospace',
+                                        }}
+                                    >
+                                        {error}
+                                    </Text>
+                                ))}
+                            </div>
+                            <Text block style={{ marginTop: '12px', color: '#aaa' }}>
+                                Successfully cleaned items have been removed. The list has been updated to reflect the current state.
+                            </Text>
+                        </DialogContent>
+                        <DialogActions>
+                            <Button appearance="primary" onClick={() => setErrorDialogOpen(false)}>
+                                Close
                             </Button>
                         </DialogActions>
                     </DialogBody>
