@@ -52,32 +52,26 @@ const useStyles = makeStyles({
     },
     header: {
         ...shorthands.padding('12px', '16px'),
-        ...shorthands.borderBottom('1px', 'solid', tokens.colorNeutralStroke1),
-        display: 'flex',
-        flexDirection: 'column',
-        ...shorthands.gap('12px'),
-    },
-    headerTop: {
+        backgroundColor: '#1e1e1e',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        ...shorthands.gap('12px'),
     },
-    headerActions: {
+    headerLeft: {
+        display: 'flex',
+        alignItems: 'center',
+        ...shorthands.gap('12px'),
+        flex: 1,
+    },
+    headerRight: {
         display: 'flex',
         ...shorthands.gap('8px'),
-        alignItems: 'center',
-    },
-    headerControls: {
-        display: 'flex',
-        ...shorthands.gap('12px'),
         alignItems: 'center',
     },
     chatContainer: {
         flex: 1,
         minHeight: 0,
-    },
-    privacyBadge: {
-        cursor: 'help',
     },
     loadingContainer: {
         display: 'flex',
@@ -336,48 +330,27 @@ export const AIPanel = ({
     return (
         <div className={styles.container}>
             <div className={styles.header}>
-                <div className={styles.headerTop}>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <Text weight="semibold" size={400}>
-                            AI Assistant
-                        </Text>
-                        {fsContext?.currentPath && (
-                            <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
-                                {fsContext.currentPath}
-                            </Text>
-                        )}
-                    </div>
-                    <div className={styles.headerActions}>
-                        <Badge
-                            className={styles.privacyBadge}
-                            appearance="tint"
-                            color="success"
-                            icon={<LockClosed24Filled />}
-                            title="All AI processing happens locally on your device"
-                        >
-                            Local
-                        </Badge>
-                        <Button
-                            appearance={showSettings ? "primary" : "subtle"}
-                            icon={<Settings24Regular />}
-                            size="small"
-                            title="AI Settings"
-                            onClick={() => setShowSettings(!showSettings)}
-                        />
-                    </div>
-                </div>
-
-                <div className={styles.headerControls}>
+                <div className={styles.headerLeft}>
                     <ModeSelector
                         selectedMode={mode}
                         onModeChange={handleModeChange}
                         disabled={isLoading || showSettings}
                     />
+                </div>
+                <div className={styles.headerRight}>
                     <ModelSelector
                         models={availableModels}
                         selectedModelId={selectedModelId}
                         onModelChange={setSelectedModelId}
                         disabled={isLoading || availableModels.length === 0 || showSettings}
+                    />
+                    <Button
+                        appearance="subtle"
+                        icon={<Settings24Regular />}
+                        size="small"
+                        title="AI Settings"
+                        onClick={() => setShowSettings(!showSettings)}
+                        style={{ color: 'white' }}
                     />
                 </div>
             </div>

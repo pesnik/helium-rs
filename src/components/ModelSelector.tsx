@@ -14,12 +14,25 @@ import {
     tokens,
     Badge,
     Text,
+    shorthands,
 } from '@fluentui/react-components';
 import { ModelConfig, ModelProvider } from '@/types/ai-types';
 
 const useStyles = makeStyles({
     dropdown: {
-        minWidth: '200px',
+        minWidth: '150px',
+        backgroundColor: '#2a2a2a',
+        ...shorthands.borderRadius('6px'),
+        color: '#ffffff',
+        ...shorthands.border('1px', 'solid', '#3a3a3a'),
+        '& button': {
+            backgroundColor: '#2a2a2a',
+            color: '#ffffff',
+            ...shorthands.border('1px', 'solid', '#3a3a3a'),
+            '&:hover': {
+                backgroundColor: '#333333',
+            },
+        },
     },
     optionContent: {
         display: 'flex',
