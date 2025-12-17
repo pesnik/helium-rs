@@ -137,6 +137,7 @@ interface AISettingsPanelProps {
     modelConfig: ModelConfig;
     allModels: ModelConfig[];
     activeProvider?: ModelProvider;
+    currentMode: AIMode; // Add current mode
     onUpdateConfig: (newConfig: ModelConfig) => void;
     onSelectModel: (modelId: string) => void;
     onProviderChange: (provider: ModelProvider) => void;
@@ -150,6 +151,7 @@ export function AISettingsPanel({
     modelConfig,
     allModels,
     activeProvider,
+    currentMode,
     onUpdateConfig,
     onSelectModel,
     onProviderChange,
@@ -178,10 +180,12 @@ export function AISettingsPanel({
         setCustomEndpoint(defaultEndpoint);
     }, [activeProvider]);
 
-    // Track if current config is set as default
+    // Track if current config is set as default for the current mode
     const [isDefault, setIsDefault] = React.useState<boolean>(() => {
-        const savedProvider = localStorage.getItem('defaultAIProvider');
-        const savedModel = localStorage.getItem('defaultAIModel');
+        const providerKey = currentMode === AIMode.Agent ? 'defaultAIProvider_agent' : 'defaultAIProvider_qa';
+        const modelKey = currentMode === AIMode.Agent ? 'defaultAIModel_agent' : 'defaultAIModel_qa';
+        const savedProvider = localStorage.getItem(providerKey);
+        const savedModel = localStorage.getItem(modelKey);
         const isProviderMatch = savedProvider === activeProvider;
         const isModelMatch = savedModel === modelConfig?.id;
         return isProviderMatch && isModelMatch;
@@ -210,14 +214,16 @@ export function AISettingsPanel({
         }
     }, [modelConfig]);
 
-    // Sync isDefault when activeProvider or modelConfig changes
+    // Sync isDefault when activeProvider, modelConfig, or mode changes
     React.useEffect(() => {
-        const savedProvider = localStorage.getItem('defaultAIProvider');
-        const savedModel = localStorage.getItem('defaultAIModel');
+        const providerKey = currentMode === AIMode.Agent ? 'defaultAIProvider_agent' : 'defaultAIProvider_qa';
+        const modelKey = currentMode === AIMode.Agent ? 'defaultAIModel_agent' : 'defaultAIModel_qa';
+        const savedProvider = localStorage.getItem(providerKey);
+        const savedModel = localStorage.getItem(modelKey);
         const isProviderMatch = savedProvider === activeProvider;
         const isModelMatch = savedModel === modelConfig?.id;
         setIsDefault(isProviderMatch && isModelMatch);
-    }, [activeProvider, modelConfig?.id]);
+    }, [activeProvider, modelConfig?.id, currentMode]);
 
     // Update customEndpoint when activeProvider changes
     // Removed: duplicate endpoint loading logic
@@ -352,6 +358,12 @@ export function AISettingsPanel({
                                             <Label weight="semibold">AI Provider</Label>
                                             <Text size={200} block style={{ color: tokens.colorNeutralForeground3, marginBottom: '8px' }}>
                                                 Choose your AI engine. Models below are filtered by this provider.
+                                            </Text>
+                                            <Badge appearance="tint" color="informative" style={{ marginBottom: '8px' }}>
+                                                Current Mode: {currentMode === AIMode.Agent ? 'Agent Mode' : 'QA Mode'}
+                                            </Badge>
+                                            <Text size={200} block style={{ color: tokens.colorNeutralForeground3, marginBottom: '8px' }}>
+                                                You can set different default models for each mode. The selected model will be used when you switch to this mode.
                                             </Text>
                                             <div style={{ marginTop: '8px' }}>
                                                 <Dropdown
@@ -647,16 +659,20 @@ export function AISettingsPanel({
                             <Button
                                 appearance={isDefault ? "primary" : "outline"}
                                 onClick={() => {
+                                    const providerKey = currentMode === AIMode.Agent ? 'defaultAIProvider_agent' : 'defaultAIProvider_qa';
+                                    const modelKey = currentMode === AIMode.Agent ? 'defaultAIModel_agent' : 'defaultAIModel_qa';
+
                                     if (isDefault) {
-                                        localStorage.removeItem('defaultAIProvider');
-                                        localStorage.removeItem('defaultAIModel');
-                                        localStorage.removeItem('defaultAIEndpoint');
+                                        // Remove provider and model for this mode
+                                        localStorage.removeItem(providerKey);
+                                        localStorage.removeItem(modelKey);
                                         setIsDefault(false);
                                     } else {
-                                        localStorage.setItem('defaultAIProvider', activeProvider);
-                                        // Save the model ID (uses config default for OpenAI-compatible)
-                                        localStorage.setItem('defaultAIModel', modelConfig.id);
-                                        // Save endpoint for OpenAI-compatible and Ollama providers
+                                        // Save the provider for the current mode
+                                        localStorage.setItem(providerKey, activeProvider);
+                                        // Save the model ID for the current mode
+                                        localStorage.setItem(modelKey, modelConfig.id);
+                                        // Save endpoint for OpenAI-compatible and Ollama providers (shared across modes)
                                         if (activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama) {
                                             localStorage.setItem('defaultAIEndpoint', customEndpoint);
                                         }
@@ -665,7 +681,9 @@ export function AISettingsPanel({
                                 }}
                                 style={{ marginLeft: 'auto' }}
                             >
-                                {isDefault ? '⭐ Default' : 'Set as Default'}
+                                {isDefault
+                                    ? `⭐ Default`
+                                    : `Set as Default`}
                             </Button>
                         )}
                         <Button appearance="primary" onClick={onClose} icon={<Save24Regular />}>

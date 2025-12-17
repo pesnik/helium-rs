@@ -5,14 +5,24 @@
  * Reads from .env with defaults from .env.example.
  */
 
-import { ModelProvider } from '@/types/ai-types';
+import { ModelProvider, AIMode } from '@/types/ai-types';
 
 export interface AIConfig {
-    defaultProvider: ModelProvider;
+    defaultProvider: {
+        qa: ModelProvider;
+        agent: ModelProvider;
+    };
     defaultModels: {
-        ollama: string;
-        openai: string;
-        candle: string;
+        qa: {
+            ollama: string;
+            openai: string;
+            candle: string;
+        };
+        agent: {
+            ollama: string;
+            openai: string;
+            candle: string;
+        };
     };
     endpoints: {
         ollama: string;
@@ -37,12 +47,22 @@ export interface AIConfig {
  */
 export function loadAIConfig(): AIConfig {
     return {
-        defaultProvider: (process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER as ModelProvider) || ModelProvider.Ollama,
+        defaultProvider: {
+            qa: (process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER_QA as ModelProvider) || ModelProvider.Candle,
+            agent: (process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER_AGENT as ModelProvider) || ModelProvider.Ollama,
+        },
 
         defaultModels: {
-            ollama: process.env.NEXT_PUBLIC_DEFAULT_OLLAMA_MODEL || 'llama3.2:1B',
-            openai: process.env.NEXT_PUBLIC_DEFAULT_OPENAI_MODEL || 'openai-compatible-generic',
-            candle: process.env.NEXT_PUBLIC_DEFAULT_CANDLE_MODEL || 'embedded-qwen1.5',
+            qa: {
+                ollama: process.env.NEXT_PUBLIC_DEFAULT_OLLAMA_MODEL_QA || 'llama3.2:1B',
+                openai: process.env.NEXT_PUBLIC_DEFAULT_OPENAI_MODEL_QA || 'openai-compatible-generic',
+                candle: process.env.NEXT_PUBLIC_DEFAULT_CANDLE_MODEL_QA || 'embedded-qwen1.5',
+            },
+            agent: {
+                ollama: process.env.NEXT_PUBLIC_DEFAULT_OLLAMA_MODEL_AGENT || 'qwen2.5-coder:7b',
+                openai: process.env.NEXT_PUBLIC_DEFAULT_OPENAI_MODEL_AGENT || 'openai-compatible-generic',
+                candle: process.env.NEXT_PUBLIC_DEFAULT_CANDLE_MODEL_AGENT || 'embedded-qwen1.5',
+            },
         },
 
         endpoints: {
@@ -67,6 +87,14 @@ export function loadAIConfig(): AIConfig {
 }
 
 /**
+ * Get the default provider for a mode
+ */
+export function getDefaultProvider(mode: AIMode = AIMode.QA, config?: AIConfig): ModelProvider {
+    const cfg = config || loadAIConfig();
+    return mode === AIMode.Agent ? cfg.defaultProvider.agent : cfg.defaultProvider.qa;
+}
+
+/**
  * Get the default endpoint for a provider
  */
 export function getDefaultEndpoint(provider: ModelProvider, config?: AIConfig): string | undefined {
@@ -83,18 +111,19 @@ export function getDefaultEndpoint(provider: ModelProvider, config?: AIConfig): 
 }
 
 /**
- * Get the default model ID for a provider
+ * Get the default model ID for a provider and mode
  */
-export function getDefaultModelId(provider: ModelProvider, config?: AIConfig): string {
+export function getDefaultModelId(provider: ModelProvider, mode: AIMode = AIMode.QA, config?: AIConfig): string {
     const cfg = config || loadAIConfig();
+    const modeKey = mode === AIMode.Agent ? 'agent' : 'qa';
 
     switch (provider) {
         case ModelProvider.Ollama:
-            return cfg.defaultModels.ollama;
+            return cfg.defaultModels[modeKey].ollama;
         case ModelProvider.OpenAICompatible:
-            return cfg.defaultModels.openai;
+            return cfg.defaultModels[modeKey].openai;
         case ModelProvider.Candle:
-            return cfg.defaultModels.candle;
+            return cfg.defaultModels[modeKey].candle;
         default:
             return '';
     }

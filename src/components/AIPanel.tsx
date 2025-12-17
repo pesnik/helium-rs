@@ -38,7 +38,7 @@ import {
     createMessage,
     getDefaultModelForMode,
 } from '@/lib/ai/ai-service';
-import { aiConfig, getDefaultEndpoint, loadAIConfig } from '@/lib/ai/config';
+import { aiConfig, getDefaultEndpoint, getDefaultProvider, loadAIConfig } from '@/lib/ai/config';
 import { mcpManager } from '@/lib/ai/mcp-manager';
 import { runInferenceWithTools } from '@/lib/ai/inference-with-tools';
 import { removeToolCallTags } from '@/lib/ai/tool-calling';
@@ -167,19 +167,28 @@ export const AIPanel = ({
                 setAvailableModels(allModels);
 
                 // Check for saved defaults (localStorage overrides runtime config)
-                const savedProvider = localStorage.getItem('defaultAIProvider') as ModelProvider | null;
-                const savedModelId = localStorage.getItem('defaultAIModel');
+                const savedProviderQA = localStorage.getItem('defaultAIProvider_qa') as ModelProvider | null;
+                const savedProviderAgent = localStorage.getItem('defaultAIProvider_agent') as ModelProvider | null;
+                const savedModelIdQA = localStorage.getItem('defaultAIModel_qa');
+                const savedModelIdAgent = localStorage.getItem('defaultAIModel_agent');
                 const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
 
-                // Use config as fallback
-                const defaultProvider = savedProvider || config.defaultProvider;
+                // Get provider based on current mode (saved or env-configured)
+                const defaultProvider = mode === AIMode.Agent
+                    ? (savedProviderAgent || config.defaultProvider.agent)
+                    : (savedProviderQA || config.defaultProvider.qa);
                 // Get the correct endpoint based on the provider
                 const defaultEndpoint = savedEndpoint || (
                     defaultProvider === ModelProvider.OpenAICompatible
                         ? config.endpoints.openaiCompatible
                         : config.endpoints.ollama
                 );
-                const configuredOpenAIModelId = config.defaultModels.openai;
+
+                // Get model based on current mode
+                const savedModelId = mode === AIMode.Agent ? savedModelIdAgent : savedModelIdQA;
+                const configuredOpenAIModelId = mode === AIMode.Agent
+                    ? config.defaultModels.agent.openai
+                    : config.defaultModels.qa.openai;
                 const defaultModelId = savedModelId || (defaultProvider === ModelProvider.OpenAICompatible ? configuredOpenAIModelId : null);
 
                 // If we're using OpenAI-compatible provider, create the model
@@ -607,6 +616,62 @@ export const AIPanel = ({
 
     const handleModeChange = (newMode: AIMode) => {
         setMode(newMode);
+
+        // Switch to appropriate provider and model for the new mode
+        const config = loadAIConfig();
+
+        // Get saved provider and model for the new mode from localStorage
+        const savedProviderKey = newMode === AIMode.Agent ? 'defaultAIProvider_agent' : 'defaultAIProvider_qa';
+        const savedModelKey = newMode === AIMode.Agent ? 'defaultAIModel_agent' : 'defaultAIModel_qa';
+        const savedProvider = localStorage.getItem(savedProviderKey) as ModelProvider | null;
+        const savedModelId = localStorage.getItem(savedModelKey);
+
+        // Determine the provider to use: saved > env-configured
+        const providerToUse = savedProvider || getDefaultProvider(newMode, config);
+
+        // Switch to the new provider
+        setActiveProvider(providerToUse);
+
+        // If there's a saved model for this mode, use it
+        if (savedModelId) {
+            const savedModel = availableModels.find(m => m.id === savedModelId);
+            if (savedModel) {
+                setSelectedModelId(savedModel.id);
+                return;
+            }
+        }
+
+        // Otherwise, fall back to env-configured default for this mode and provider
+        const modeKey = newMode === AIMode.Agent ? 'agent' : 'qa';
+        let defaultModelId: string | undefined;
+
+        switch (providerToUse) {
+            case ModelProvider.Ollama:
+                defaultModelId = config.defaultModels[modeKey].ollama;
+                break;
+            case ModelProvider.OpenAICompatible:
+                defaultModelId = config.defaultModels[modeKey].openai;
+                break;
+            case ModelProvider.Candle:
+                defaultModelId = config.defaultModels[modeKey].candle;
+                break;
+        }
+
+        if (defaultModelId) {
+            const defaultModel = availableModels.find(m => m.modelId === defaultModelId && m.provider === providerToUse);
+            if (defaultModel) {
+                setSelectedModelId(defaultModel.id);
+                return;
+            }
+        }
+
+        // Final fallback: use getDefaultModelForMode
+        const fallbackModel = getDefaultModelForMode(newMode, availableModels);
+        if (fallbackModel) {
+            setSelectedModelId(fallbackModel.id);
+            setActiveProvider(fallbackModel.provider);
+        }
+
         // Optionally clear messages when switching modes
         // setMessages([]);
     };
@@ -727,6 +792,7 @@ export const AIPanel = ({
                     modelConfig={availableModels.find(m => m.id === selectedModelId)!}
                     allModels={availableModels}
                     activeProvider={activeProvider}
+                    currentMode={mode}
                     onUpdateConfig={handleUpdateConfig}
                     onSelectModel={setSelectedModelId}
                     onProviderChange={handleProviderChange}
