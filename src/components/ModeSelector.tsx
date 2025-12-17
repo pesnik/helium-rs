@@ -63,7 +63,7 @@ const MODE_CONFIG = {
     [AIMode.Agent]: {
         icon: <Bot24Regular />,
         label: 'Agent',
-        tooltip: 'AI agent with file system operation capabilities (Coming in Phase 4)',
+        tooltip: 'AI agent with MCP filesystem tools - can read, write, search, and manage files',
     },
 };
 
@@ -85,7 +85,7 @@ export function ModeSelector({
                             icon={config.icon}
                             checked={isSelected}
                             onClick={() => onModeChange(mode as AIMode)}
-                            disabled={disabled || mode === AIMode.Agent}
+                            disabled={disabled}
                             appearance="subtle"
                         >
                             {config.label}

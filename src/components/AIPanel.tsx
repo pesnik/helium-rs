@@ -39,6 +39,8 @@ import {
     getDefaultModelForMode,
 } from '@/lib/ai/ai-service';
 import { aiConfig, getDefaultEndpoint, loadAIConfig } from '@/lib/ai/config';
+import { mcpManager } from '@/lib/ai/mcp-manager';
+import { runInferenceWithTools } from '@/lib/ai/inference-with-tools';
 
 const useStyles = makeStyles({
     container: {
@@ -258,6 +260,26 @@ export const AIPanel = ({
         initialize();
     }, []);
 
+    // Initialize MCP when switching to Agent mode or when directory changes
+    useEffect(() => {
+        async function initMCP() {
+            if (mode === AIMode.Agent && fsContext?.currentPath) {
+                const initialized = await mcpManager.ensureInitialized(fsContext.currentPath);
+                if (!initialized) {
+                    console.error('[AIPanel] Failed to initialize MCP for Agent mode');
+                }
+            }
+        }
+        initMCP();
+    }, [mode, fsContext?.currentPath]);
+
+    // Cleanup MCP on unmount
+    useEffect(() => {
+        return () => {
+            mcpManager.shutdown();
+        };
+    }, []);
+
     // Update selected model when mode changes
     // BUT only if we don't already have a valid model selected
     useEffect(() => {
@@ -445,38 +467,89 @@ export const AIPanel = ({
             // Use the cleaned messages (not the stale 'messages' variable!)
             const messagesToSend = [...cleanedMessages, userMessage];
 
-            const response = await runInference({
-                sessionId: sessionId,
-                modelConfig: modelConfigWithEndpoint,
-                messages: messagesToSend,
-                fsContext,
-                mode,
-            }, isStreaming ? (chunk) => {
-                // Remove download message once we start getting chunks
-                if (downloadMsgId) {
-                    setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
-                    downloadMsgId = ''; // Clear it so we only remove once
-                }
+            // Use tool-enabled inference for Agent mode, standard inference for QA mode
+            const response = mode === AIMode.Agent
+                ? await runInferenceWithTools({
+                      sessionId: sessionId,
+                      modelConfig: modelConfigWithEndpoint,
+                      messages: messagesToSend,
+                      fsContext,
+                      mode,
+                  }, {
+                      onChunk: isStreaming ? (chunk) => {
+                          // Remove download message once we start getting chunks
+                          if (downloadMsgId) {
+                              setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
+                              downloadMsgId = ''; // Clear it so we only remove once
+                          }
 
-                // On first chunk, replace the "thinking" message
-                if (streamedContent === '') {
-                    streamedContent = chunk;
-                    setMessages((prev) => prev.map(msg =>
-                        msg.id === assistantMsgId
-                            ? { ...msg, content: chunk, isStreaming: true }
-                            : msg
-                    ));
-                    return;
-                }
+                          // On first chunk, replace the "thinking" message
+                          if (streamedContent === '') {
+                              streamedContent = chunk;
+                              setMessages((prev) => prev.map(msg =>
+                                  msg.id === assistantMsgId
+                                      ? { ...msg, content: chunk, isStreaming: true }
+                                      : msg
+                              ));
+                              return;
+                          }
 
-                // Handle subsequent streaming chunks
-                streamedContent += chunk;
-                setMessages((prev) => prev.map(msg =>
-                    msg.id === assistantMsgId
-                        ? { ...msg, content: streamedContent, isStreaming: true }
-                        : msg
-                ));
-            } : undefined);
+                          // Handle subsequent streaming chunks
+                          streamedContent += chunk;
+                          setMessages((prev) => prev.map(msg =>
+                              msg.id === assistantMsgId
+                                  ? { ...msg, content: streamedContent, isStreaming: true }
+                                  : msg
+                          ));
+                      } : undefined,
+                      onToolExecution: (event) => {
+                          if (event.result || event.error) {
+                              // Tool completed
+                              if (event.error) {
+                                  console.error(`[AIPanel] ❌ Tool ${event.toolName} failed:`, event.error);
+                              } else {
+                                  console.log(`[AIPanel] ✅ Tool ${event.toolName} completed in ${event.executionTimeMs}ms`);
+                                  console.log(`[AIPanel]    Result preview:`, event.result?.substring(0, 100));
+                              }
+                          } else {
+                              // Tool started
+                              console.log(`[AIPanel] 🔧 Starting tool: ${event.toolName}`);
+                              console.log(`[AIPanel]    Arguments:`, event.arguments);
+                          }
+                      },
+                  })
+                : await runInference({
+                      sessionId: sessionId,
+                      modelConfig: modelConfigWithEndpoint,
+                      messages: messagesToSend,
+                      fsContext,
+                      mode,
+                  }, isStreaming ? (chunk) => {
+                      // Remove download message once we start getting chunks
+                      if (downloadMsgId) {
+                          setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
+                          downloadMsgId = ''; // Clear it so we only remove once
+                      }
+
+                      // On first chunk, replace the "thinking" message
+                      if (streamedContent === '') {
+                          streamedContent = chunk;
+                          setMessages((prev) => prev.map(msg =>
+                              msg.id === assistantMsgId
+                                  ? { ...msg, content: chunk, isStreaming: true }
+                                  : msg
+                          ));
+                          return;
+                      }
+
+                      // Handle subsequent streaming chunks
+                      streamedContent += chunk;
+                      setMessages((prev) => prev.map(msg =>
+                          msg.id === assistantMsgId
+                              ? { ...msg, content: streamedContent, isStreaming: true }
+                              : msg
+                          ));
+                  } : undefined);
 
             if (isStreaming) {
                 // Remove download message if still present

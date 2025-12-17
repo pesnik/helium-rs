@@ -3,6 +3,8 @@ mod commands;
 mod ai;
 mod ai_commands;
 mod cleaner;
+mod mcp;
+mod mcp_commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +20,7 @@ pub fn run() {
       Ok(())
     })
     .manage(ai_commands::InferenceState::default())
+    .manage(mcp_commands::MCPState::new())
     .invoke_handler(tauri::generate_handler![
         commands::scan_dir,
         commands::refresh_scan,
@@ -34,7 +37,12 @@ pub fn run() {
         ai_commands::check_provider_availability,
         ai_commands::download_model,
         commands::scan_junk,
-        commands::clean_junk
+        commands::clean_junk,
+        mcp_commands::initialize_mcp,
+        mcp_commands::get_mcp_tools,
+        mcp_commands::execute_mcp_tool,
+        mcp_commands::shutdown_mcp,
+        mcp_commands::is_mcp_initialized
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

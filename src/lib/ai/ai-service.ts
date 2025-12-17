@@ -24,6 +24,7 @@ const getTransformerJS = async () => {
 };
 import { buildFileSystemContext } from './context-builder';
 import { getTemplateForMode, buildPrompt } from './prompts';
+import { mcpService } from './mcp-service';
 
 // Known models registry
 export const KNOWN_MODELS: ModelConfig[] = [
@@ -294,11 +295,15 @@ function prepareMessages(request: InferenceRequest): ChatMessage[] {
             ? buildFileSystemContext(request.fsContext)
             : 'No file system context available.';
 
-    // Build system prompt
+    // Build system prompt with MCP tools if in Agent mode
+    const mcpToolsStr = request.mode === AIMode.Agent
+        ? mcpService.formatToolsForPrompt()
+        : '(Tools not available in QA mode)';
+
     const systemPrompt = buildPrompt(template.systemPrompt, {
         fs_context: fsContextStr,
         current_path: request.fsContext?.currentPath || '/',
-        mcp_tools: '(Agent mode tools will be available in Phase 4)',
+        mcp_tools: mcpToolsStr,
     });
 
     // Check if system message already exists

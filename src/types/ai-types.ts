@@ -274,17 +274,61 @@ export interface PromptTemplate {
 }
 
 /**
- * MCP tool definition (for agent mode - Phase 4)
+ * MCP tool definition (for agent mode)
  */
 export interface MCPTool {
     /** Tool name */
     name: string;
     /** Tool description */
     description: string;
-    /** Input schema */
+    /** Input schema (JSON Schema) */
     inputSchema: Record<string, unknown>;
     /** Whether this tool is available */
     isAvailable: boolean;
+    /** Tool annotations for operation hints */
+    annotations?: {
+        readOnlyHint?: boolean;
+        idempotentHint?: boolean;
+        destructiveHint?: boolean;
+    };
+}
+
+/**
+ * Tool call from LLM
+ */
+export interface ToolCall {
+    /** Unique ID for this tool call */
+    id: string;
+    /** Tool name to execute */
+    name: string;
+    /** Tool arguments (parsed from LLM response) */
+    arguments: Record<string, unknown>;
+}
+
+/**
+ * Result from executing a tool
+ */
+export interface ToolResult {
+    /** ID of the tool call this is a result for */
+    tool_call_id: string;
+    /** Result content (can be text, JSON, etc.) */
+    content: string;
+    /** Whether this is an error result */
+    isError: boolean;
+    /** Execution time in milliseconds */
+    executionTimeMs?: number;
+}
+
+/**
+ * MCP server configuration
+ */
+export interface MCPServerConfig {
+    /** Allowed directories for file operations */
+    allowedDirectories: string[];
+    /** Whether to require confirmation for destructive operations */
+    confirmDestructive: boolean;
+    /** Maximum file size for read operations (in bytes) */
+    maxFileSize?: number;
 }
 
 /**
