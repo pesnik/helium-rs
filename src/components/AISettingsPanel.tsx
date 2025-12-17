@@ -174,9 +174,17 @@ export function AISettingsPanel({
     // Load config on mount to get the correct default endpoints
     React.useEffect(() => {
         const config = loadAIConfig();
-        const defaultEndpoint = activeProvider === ModelProvider.OpenAICompatible
-            ? config.endpoints.openaiCompatible
-            : config.endpoints.ollama;
+        // Check for saved custom endpoint first, fall back to config defaults
+        // Use provider-specific keys so Ollama and OpenAI-compatible can have different endpoints
+        const endpointKey = activeProvider === ModelProvider.OpenAICompatible
+            ? 'defaultAIEndpoint_openaiCompatible'
+            : 'defaultAIEndpoint_ollama';
+        const savedEndpoint = localStorage.getItem(endpointKey);
+        const defaultEndpoint = savedEndpoint || (
+            activeProvider === ModelProvider.OpenAICompatible
+                ? config.endpoints.openaiCompatible
+                : config.endpoints.ollama
+        );
         setCustomEndpoint(defaultEndpoint);
     }, [activeProvider]);
 
@@ -672,9 +680,12 @@ export function AISettingsPanel({
                                         localStorage.setItem(providerKey, activeProvider);
                                         // Save the model ID for the current mode
                                         localStorage.setItem(modelKey, modelConfig.id);
-                                        // Save endpoint for OpenAI-compatible and Ollama providers (shared across modes)
+                                        // Save endpoint for OpenAI-compatible and Ollama providers (provider-specific)
                                         if (activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama) {
-                                            localStorage.setItem('defaultAIEndpoint', customEndpoint);
+                                            const endpointKey = activeProvider === ModelProvider.OpenAICompatible
+                                                ? 'defaultAIEndpoint_openaiCompatible'
+                                                : 'defaultAIEndpoint_ollama';
+                                            localStorage.setItem(endpointKey, customEndpoint);
                                         }
                                         setIsDefault(true);
                                     }
@@ -686,7 +697,18 @@ export function AISettingsPanel({
                                     : `Set as Default`}
                             </Button>
                         )}
-                        <Button appearance="primary" onClick={onClose} icon={<Save24Regular />}>
+                        <Button appearance="primary" onClick={() => {
+                            // Save custom endpoint if it has changed
+                            if (activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama) {
+                                if (customEndpoint) {
+                                    const endpointKey = activeProvider === ModelProvider.OpenAICompatible
+                                        ? 'defaultAIEndpoint_openaiCompatible'
+                                        : 'defaultAIEndpoint_ollama';
+                                    localStorage.setItem(endpointKey, customEndpoint);
+                                }
+                            }
+                            onClose();
+                        }} icon={<Save24Regular />}>
                             Save
                         </Button>
                     </DialogActions>

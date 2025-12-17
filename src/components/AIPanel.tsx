@@ -171,13 +171,17 @@ export const AIPanel = ({
                 const savedProviderAgent = localStorage.getItem('defaultAIProvider_agent') as ModelProvider | null;
                 const savedModelIdQA = localStorage.getItem('defaultAIModel_qa');
                 const savedModelIdAgent = localStorage.getItem('defaultAIModel_agent');
-                const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
 
                 // Get provider based on current mode (saved or env-configured)
                 const defaultProvider = mode === AIMode.Agent
                     ? (savedProviderAgent || config.defaultProvider.agent)
                     : (savedProviderQA || config.defaultProvider.qa);
-                // Get the correct endpoint based on the provider
+
+                // Get the correct endpoint based on the provider (use provider-specific keys)
+                const endpointKey = defaultProvider === ModelProvider.OpenAICompatible
+                    ? 'defaultAIEndpoint_openaiCompatible'
+                    : 'defaultAIEndpoint_ollama';
+                const savedEndpoint = localStorage.getItem(endpointKey);
                 const defaultEndpoint = savedEndpoint || (
                     defaultProvider === ModelProvider.OpenAICompatible
                         ? config.endpoints.openaiCompatible
@@ -454,14 +458,22 @@ export const AIPanel = ({
             setMessages((prev) => [...prev, thinkingMessage]);
 
             // Add endpoint for OpenAI-compatible and Ollama providers
-            // Priority: 1) model config (from runtime config/backend), 2) localStorage (user override), 3) runtime config fallback
+            // Priority: 1) localStorage (user custom endpoint), 2) model config (from runtime config/backend), 3) runtime config fallback
             let endpointToUse: string | undefined;
-            if (selectedModel.provider === ModelProvider.OpenAICompatible || selectedModel.provider === ModelProvider.Ollama) {
-                // Prefer the model's endpoint (which comes from runtime config or backend)
-                // Only use localStorage as a fallback if the model doesn't have an endpoint set
-                endpointToUse = selectedModel.endpoint ||
-                               localStorage.getItem('defaultAIEndpoint') ||
-                               await getDefaultEndpoint(selectedModel.provider);
+            if (activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama) {
+                // CRITICAL FIX: Use activeProvider (current state) instead of selectedModel.provider (can be stale)
+                // This prevents race conditions when user switches providers and immediately sends a message
+                const endpointKey = activeProvider === ModelProvider.OpenAICompatible
+                    ? 'defaultAIEndpoint_openaiCompatible'
+                    : 'defaultAIEndpoint_ollama';
+                endpointToUse = localStorage.getItem(endpointKey) ||
+                               selectedModel.endpoint ||
+                               await getDefaultEndpoint(activeProvider);
+
+                // Validation: Warn if model provider doesn't match active provider (indicates state sync issue)
+                if (selectedModel.provider !== activeProvider) {
+                    console.warn(`[AIPanel] Provider mismatch detected! selectedModel.provider=${selectedModel.provider}, activeProvider=${activeProvider}. Using activeProvider for endpoint resolution.`);
+                }
             }
 
             const modelConfigWithEndpoint = {
