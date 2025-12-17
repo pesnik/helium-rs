@@ -86,7 +86,9 @@ pub async fn check_ollama_availability(endpoint: Option<&str>) -> Result<bool, A
 
 /// Get available Ollama models
 pub async fn get_ollama_models(endpoint: Option<&str>) -> Result<Vec<ModelConfig>, AIError> {
-    let url = format!("{}/api/tags", endpoint.unwrap_or(DEFAULT_OLLAMA_ENDPOINT));
+    let actual_endpoint = endpoint.unwrap_or(DEFAULT_OLLAMA_ENDPOINT);
+    println!("[get_ollama_models] Using endpoint: {}", actual_endpoint);
+    let url = format!("{}/api/tags", actual_endpoint);
 
     let response = reqwest::get(&url).await.map_err(|e| AIError {
         error_type: AIErrorType::NetworkError,
@@ -106,7 +108,7 @@ pub async fn get_ollama_models(endpoint: Option<&str>) -> Result<Vec<ModelConfig
         suggested_actions: None,
     })?;
 
-    let models = list
+    let models: Vec<ModelConfig> = list
         .models
         .into_iter()
         .map(|m| {
@@ -135,7 +137,7 @@ pub async fn get_ollama_models(endpoint: Option<&str>) -> Result<Vec<ModelConfig
                     stop_sequences: None,
                     context_window: Some(4096),
                 },
-                endpoint: None,
+                endpoint: Some(actual_endpoint.to_string()),
                 api_key: None,
                 is_available: true,
                 size_bytes: Some(m.size),
@@ -144,11 +146,16 @@ pub async fn get_ollama_models(endpoint: Option<&str>) -> Result<Vec<ModelConfig
         })
         .collect();
 
+    println!("[get_ollama_models] Returning {} models, all with endpoint: {}", models.len(), actual_endpoint);
     Ok(models)
 }
 
 /// Run inference with Ollama
-pub async fn run_ollama_inference(window: tauri::Window, request: &InferenceRequest) -> Result<InferenceResponse, AIError> {
+pub async fn run_ollama_inference(
+    window: tauri::Window,
+    request: &InferenceRequest,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> Result<InferenceResponse, AIError> {
     let start_time = Instant::now();
 
     let endpoint = request
@@ -297,13 +304,24 @@ pub async fn run_ollama_inference(window: tauri::Window, request: &InferenceRequ
     let mut buffer = Vec::new();
 
     while let Some(chunk_result) = stream.next().await {
+        // Check if cancellation was requested
+        if cancel_token.is_cancelled() {
+            println!("[Ollama] Inference cancelled by user");
+            return Err(AIError {
+                error_type: AIErrorType::InferenceFailed,
+                message: "Inference cancelled by user".to_string(),
+                details: None,
+                suggested_actions: None,
+            });
+        }
+
         let chunk = chunk_result.map_err(|e| AIError {
             error_type: AIErrorType::NetworkError,
             message: format!("Stream error: {}", e),
             details: None,
             suggested_actions: None,
         })?;
-        
+
         buffer.extend_from_slice(&chunk);
 
         // Process full lines in buffer

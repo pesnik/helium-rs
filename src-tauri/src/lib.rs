@@ -17,6 +17,7 @@ pub fn run() {
       }
       Ok(())
     })
+    .manage(ai_commands::InferenceState::default())
     .invoke_handler(tauri::generate_handler![
         commands::scan_dir,
         commands::refresh_scan,
@@ -29,8 +30,7 @@ pub fn run() {
         ai_commands::get_ai_providers_status,
         ai_commands::get_provider_models,
         ai_commands::run_ai_inference,
-        ai_commands::run_ai_inference,
-        ai_commands::check_provider_availability,
+        ai_commands::cancel_inference,
         ai_commands::check_provider_availability,
         ai_commands::download_model,
         commands::scan_junk,

@@ -26,12 +26,14 @@ export function formatFileSize(bytes: number): string {
  * Build context string from file system data
  */
 export function buildFileSystemContext(context: FileSystemContext): string {
-    const parts: string[] = [];
+    try {
+        console.log('[context-builder] Building context, received:', context);
+        const parts: string[] = [];
 
-    // Current path
-    if (context.currentPath) {
-        parts.push(`Current Directory: ${context.currentPath}`);
-    }
+        // Current path
+        if (context.currentPath) {
+            parts.push(`Current Directory: ${context.currentPath}`);
+        }
 
     // Selected paths
     if (context.selectedPaths && context.selectedPaths.length > 0) {
@@ -76,7 +78,7 @@ export function buildFileSystemContext(context: FileSystemContext): string {
             });
         }
 
-        if (context.scanData.fileTypes && Object.keys(context.scanData.fileTypes).length > 0) {
+        if (context.scanData.fileTypes && typeof context.scanData.fileTypes === 'object' && Object.keys(context.scanData.fileTypes).length > 0) {
             parts.push('\nFile Type Distribution (Deep Scan):');
             const sortedTypes = Object.entries(context.scanData.fileTypes)
                 .sort(([, a], [, b]) => b - a)
@@ -87,7 +89,14 @@ export function buildFileSystemContext(context: FileSystemContext): string {
         }
     }
 
-    return parts.join('\n');
+        console.log('[context-builder] Successfully built context');
+        return parts.join('\n');
+    } catch (error) {
+        console.error('[context-builder] Error building context:', error);
+        console.error('[context-builder] Context object:', context);
+        // Return a safe fallback
+        return `Current Directory: ${context?.currentPath || 'Unknown'}\n[Error building full context]`;
+    }
 }
 
 /**

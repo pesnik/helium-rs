@@ -20,6 +20,7 @@ import {
     Send24Regular,
     Bot24Regular,
     Person24Regular,
+    Stop24Regular,
 } from '@fluentui/react-icons';
 import { ChatMessage, MessageRole } from '@/types/ai-types';
 import ReactMarkdown from 'react-markdown';
@@ -173,6 +174,7 @@ const useStyles = makeStyles({
 interface AIChatProps {
     messages: ChatMessage[];
     onSendMessage: (content: string) => void;
+    onStopGeneration?: () => void;
     isLoading?: boolean;
     isStreaming?: boolean;
     placeholder?: string;
@@ -182,6 +184,7 @@ interface AIChatProps {
 export function AIChat({
     messages,
     onSendMessage,
+    onStopGeneration,
     isLoading = false,
     isStreaming = false,
     placeholder = 'Ask about your files...',
@@ -285,12 +288,21 @@ export function AIChat({
                     placeholder={placeholder}
                     disabled={isLoading}
                 />
-                <Button
-                    appearance="primary"
-                    icon={<Send24Regular />}
-                    onClick={handleSend}
-                    disabled={!inputValue.trim() || isLoading}
-                />
+                {isLoading && onStopGeneration ? (
+                    <Button
+                        appearance="primary"
+                        icon={<Stop24Regular />}
+                        onClick={onStopGeneration}
+                        title="Stop generation"
+                    />
+                ) : (
+                    <Button
+                        appearance="primary"
+                        icon={<Send24Regular />}
+                        onClick={handleSend}
+                        disabled={!inputValue.trim() || isLoading}
+                    />
+                )}
             </div>
         </div >
     );

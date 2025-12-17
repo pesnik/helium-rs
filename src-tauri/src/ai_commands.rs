@@ -8,15 +8,31 @@ use crate::ai::{
     },
     InferenceRequest, InferenceResponse, ModelConfig, ModelProvider, ProviderStatus,
 };
-use tauri::{command, Emitter};
+use tauri::{command, Emitter, State};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio_util::sync::CancellationToken;
+
+// Global state to track active inference sessions
+pub struct InferenceState {
+    pub active_sessions: Arc<Mutex<HashMap<String, CancellationToken>>>,
+}
+
+impl Default for InferenceState {
+    fn default() -> Self {
+        Self {
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
 
 /// Get status of all AI providers
 #[command]
-pub async fn get_ai_providers_status() -> Result<Vec<ProviderStatus>, String> {
+pub async fn get_ai_providers_status(ollama_endpoint: Option<String>) -> Result<Vec<ProviderStatus>, String> {
     let mut statuses = Vec::new();
 
-    // Check Ollama
-    statuses.push(get_ollama_status(None).await);
+    // Check Ollama with provided endpoint
+    statuses.push(get_ollama_status(ollama_endpoint.as_deref()).await);
 
     // Check Candle (Embedded)
     statuses.push(get_candle_status().await);
@@ -50,11 +66,42 @@ pub async fn get_provider_models(
     }
 }
 
+/// Cancel an ongoing inference request
+#[command]
+pub async fn cancel_inference(
+    session_id: String,
+    state: State<'_, InferenceState>,
+) -> Result<(), String> {
+    let mut sessions = state.active_sessions.lock().unwrap();
+    if let Some(token) = sessions.remove(&session_id) {
+        token.cancel();
+        Ok(())
+    } else {
+        // Session not found means it already completed - this is still success from user's perspective
+        Ok(())
+    }
+}
+
 /// Run AI inference
 #[command]
-pub async fn run_ai_inference(window: tauri::Window, request: InferenceRequest) -> Result<InferenceResponse, String> {
-    match request.model_config.provider {
-        ModelProvider::Ollama => run_ollama_inference(window, &request)
+pub async fn run_ai_inference(
+    window: tauri::Window,
+    request: InferenceRequest,
+    state: State<'_, InferenceState>,
+) -> Result<InferenceResponse, String> {
+    // Create cancellation token for this session
+    let cancel_token = CancellationToken::new();
+    let session_id = request.session_id.clone();
+
+    // Register the session
+    {
+        let mut sessions = state.active_sessions.lock().unwrap();
+        sessions.insert(session_id.clone(), cancel_token.clone());
+    }
+
+    // Run inference with cancellation support
+    let result = match request.model_config.provider {
+        ModelProvider::Ollama => run_ollama_inference(window, &request, cancel_token.clone())
             .await
             .map_err(|e| e.message),
         ModelProvider::Candle => run_candle_inference(window, &request)
@@ -68,7 +115,15 @@ pub async fn run_ai_inference(window: tauri::Window, request: InferenceRequest) 
             Err("TransformerJS inference should run in the browser".to_string())
         }
         _ => Err("Provider not yet implemented".to_string()),
+    };
+
+    // Cleanup: remove session from active sessions
+    {
+        let mut sessions = state.active_sessions.lock().unwrap();
+        sessions.remove(&session_id);
     }
+
+    result
 }
 
 /// Check if a specific provider is available

@@ -39,6 +39,7 @@ import {
 } from '@fluentui/react-icons';
 import { ModelConfig, ModelParameters, ModelProvider, AIMode, MessageRole } from '@/types/ai-types';
 import { runInference, createMessage } from '@/lib/ai/ai-service';
+import { loadRuntimeConfig } from '@/lib/ai/config';
 
 const useStyles = makeStyles({
     dialogSurface: {
@@ -166,11 +167,19 @@ export function AISettingsPanel({
     const [params, setParams] = React.useState<ModelParameters>(modelConfig?.parameters || {
         temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true
     });
-    const [customEndpoint, setCustomEndpoint] = React.useState<string>(
-        activeProvider === ModelProvider.OpenAICompatible
-            ? 'http://127.0.0.1:8080/v1'
-            : 'http://127.0.0.1:11434'
-    );
+    const [customEndpoint, setCustomEndpoint] = React.useState<string>('');
+
+    // Load runtime config on mount to get the correct default endpoints
+    React.useEffect(() => {
+        async function loadEndpoint() {
+            const config = await loadRuntimeConfig();
+            const defaultEndpoint = activeProvider === ModelProvider.OpenAICompatible
+                ? config.endpoints.openaiCompatible
+                : config.endpoints.ollama;
+            setCustomEndpoint(defaultEndpoint);
+        }
+        loadEndpoint();
+    }, [activeProvider]);
 
     // Track if current config is set as default
     const [isDefault, setIsDefault] = React.useState<boolean>(() => {
@@ -216,23 +225,8 @@ export function AISettingsPanel({
     }, [activeProvider, modelConfig?.id]);
 
     // Update customEndpoint when activeProvider changes
-    React.useEffect(() => {
-        if (activeProvider === ModelProvider.OpenAICompatible) {
-            const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
-            if (savedEndpoint && savedEndpoint.includes('/v1')) {
-                setCustomEndpoint(savedEndpoint);
-            } else {
-                setCustomEndpoint('http://127.0.0.1:8080/v1');
-            }
-        } else if (activeProvider === ModelProvider.Ollama) {
-            const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
-            if (savedEndpoint && !savedEndpoint.includes('/v1')) {
-                setCustomEndpoint(savedEndpoint);
-            } else {
-                setCustomEndpoint('http://127.0.0.1:11434');
-            }
-        }
-    }, [activeProvider]);
+    // Removed: duplicate endpoint loading logic
+    // The endpoint is now loaded from runtime config in the useEffect above
 
     const handleParamChange = (key: keyof ModelParameters, value: any) => {
         if (!modelConfig) return;

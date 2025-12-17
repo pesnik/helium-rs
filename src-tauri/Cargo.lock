@@ -152,6 +152,7 @@ dependencies = [
  "tauri-plugin-log",
  "tokenizers",
  "tokio",
+ "tokio-util",
  "uuid",
  "walkdir",
 ]

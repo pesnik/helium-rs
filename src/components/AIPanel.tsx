@@ -38,6 +38,7 @@ import {
     createMessage,
     getDefaultModelForMode,
 } from '@/lib/ai/ai-service';
+import { aiConfig, getDefaultEndpoint, loadRuntimeConfig } from '@/lib/ai/config';
 
 const useStyles = makeStyles({
     container: {
@@ -95,15 +96,11 @@ export const AIPanel = ({
 }: AIPanelProps) => {
     const styles = useStyles();
 
-    // DEBUG: Trace context reception
-    React.useEffect(() => {
-        console.log('[AIPanel] Received fsContext path:', fsContext?.currentPath);
-    }, [fsContext?.currentPath]);
-
     const [mode, setMode] = useState<AIMode>(AIMode.QA);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isInitializing, setIsInitializing] = useState(true);
+    const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
     const [availableModels, setAvailableModels] = useState<ModelConfig[]>([]);
     const [selectedModelId, setSelectedModelId] = useState<string | undefined>();
@@ -152,6 +149,9 @@ export const AIPanel = ({
     useEffect(() => {
         async function initialize() {
             try {
+                // Load runtime config first
+                const runtimeConfig = await loadRuntimeConfig();
+
                 const statuses = await getProvidersStatus();
 
                 // Collect all available models
@@ -163,21 +163,32 @@ export const AIPanel = ({
 
                 setAvailableModels(allModels);
 
-                // Check for saved defaults
+                // Check for saved defaults (localStorage overrides runtime config)
                 const savedProvider = localStorage.getItem('defaultAIProvider') as ModelProvider | null;
                 const savedModelId = localStorage.getItem('defaultAIModel');
+                const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
 
-                // If we're looking for the generic OpenAI-compatible model, create it first
-                if (savedModelId === 'openai-compatible-generic' && savedProvider === ModelProvider.OpenAICompatible) {
-                    const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
-                    if (savedEndpoint) {
+                // Use runtime config as fallback
+                const defaultProvider = savedProvider || runtimeConfig.defaultProvider;
+                const defaultEndpoint = savedEndpoint || runtimeConfig.endpoints.ollama || runtimeConfig.endpoints.openaiCompatible;
+                const defaultModelId = savedModelId || (defaultProvider === ModelProvider.OpenAICompatible ? 'openai-compatible-generic' : null);
+
+                // If we're using OpenAI-compatible provider, create the generic model
+                if ((defaultModelId === 'openai-compatible-generic' || defaultProvider === ModelProvider.OpenAICompatible) && defaultEndpoint) {
+                    // Check if model doesn't already exist
+                    if (!allModels.find(m => m.id === 'openai-compatible-generic')) {
                         const genericModel: ModelConfig = {
                             id: 'openai-compatible-generic',
                             name: 'OpenAI Compatible Server',
                             provider: ModelProvider.OpenAICompatible,
-                            modelId: 'gpt-3.5-turbo', // Generic default
-                            parameters: { temperature: 0.7, topP: 0.9, maxTokens: 2048, stream: true },
-                            endpoint: savedEndpoint,
+                            modelId: aiConfig.defaultModels.openai,
+                            parameters: {
+                                temperature: aiConfig.parameters.temperature,
+                                topP: aiConfig.parameters.topP,
+                                maxTokens: aiConfig.parameters.maxTokens,
+                                stream: true
+                            },
+                            endpoint: defaultEndpoint,
                             isAvailable: true,
                             recommendedFor: [AIMode.QA, AIMode.Agent],
                             sizeBytes: 0
@@ -187,7 +198,7 @@ export const AIPanel = ({
                     }
                 }
 
-                // Priority: 1) Saved model, 2) Saved provider's first model, 3) Default model for mode
+                // Priority: 1) Saved model, 2) Env-configured model, 3) Provider's first available model, 4) Default model for mode
                 let modelToSelect: ModelConfig | null = null;
                 let providerToUse: ModelProvider | undefined = undefined;
 
@@ -199,14 +210,22 @@ export const AIPanel = ({
                     }
                 }
 
-                // If no saved model, try saved provider's first available model
-                if (!modelToSelect && savedProvider) {
+                // If no saved model, try env-configured model
+                if (!modelToSelect && defaultModelId) {
+                    modelToSelect = allModels.find(m => m.id === defaultModelId) || null;
+                    if (modelToSelect) {
+                        providerToUse = modelToSelect.provider;
+                    }
+                }
+
+                // If still no model, try saved/default provider's first available model
+                if (!modelToSelect) {
                     modelToSelect = allModels.find(m =>
-                        m.provider === savedProvider && m.isAvailable
-                    ) || allModels.find(m => m.provider === savedProvider) || null;
+                        m.provider === defaultProvider && m.isAvailable
+                    ) || allModels.find(m => m.provider === defaultProvider) || null;
 
                     if (modelToSelect) {
-                        providerToUse = savedProvider;
+                        providerToUse = defaultProvider;
                     }
                 }
 
@@ -234,14 +253,22 @@ export const AIPanel = ({
     }, []);
 
     // Update selected model when mode changes
+    // BUT only if we don't already have a valid model selected
     useEffect(() => {
+        // Check if current selection is still valid
+        const currentModel = availableModels.find(m => m.id === selectedModelId);
+        if (currentModel) {
+            return; // Keep current selection
+        }
+
+        // No valid selection, choose a default for the mode
         const defaultModel = getDefaultModelForMode(mode, availableModels);
         if (defaultModel) {
             setSelectedModelId(defaultModel.id);
             // Update active provider when model changes
             setActiveProvider(defaultModel.provider);
         }
-    }, [mode, availableModels]);
+    }, [mode, availableModels, selectedModelId]);
 
     // Filter models based on active provider
     const filteredModels = React.useMemo(() => {
@@ -280,10 +307,66 @@ export const AIPanel = ({
         }
     };
 
+    const handleStopGeneration = async () => {
+        if (currentSessionId) {
+            try {
+                await invoke('cancel_inference', { sessionId: currentSessionId });
+
+                // Remove any thinking/streaming messages
+                setMessages((prev) => prev.filter(msg =>
+                    !(msg.content === '💭 Thinking...' || msg.isStreaming)
+                ));
+
+                setIsLoading(false);
+                setCurrentSessionId(null);
+            } catch (error: any) {
+                // If session not found, it likely already completed - this is not an error
+                if (!error?.includes?.('not found')) {
+                    console.error('Failed to cancel inference:', error);
+                }
+
+                // Remove any thinking/streaming messages even if cancel failed
+                setMessages((prev) => prev.filter(msg =>
+                    !(msg.content === '💭 Thinking...' || msg.isStreaming)
+                ));
+
+                // Always reset loading state even if cancel failed
+                setIsLoading(false);
+                setCurrentSessionId(null);
+            }
+        }
+    };
+
     const handleSendMessage = async (content: string) => {
+        // Clean up any incomplete messages and ensure proper alternation
+        // IMPORTANT: We need to capture the cleaned messages to use for the API call
+        let cleanedMessages: ChatMessage[] = [];
+
+        setMessages((prev) => {
+            // Remove streaming/thinking messages AND error messages from failed requests
+            let cleaned = prev.filter(msg =>
+                !(msg.content === '💭 Thinking...' ||
+                  msg.isStreaming ||
+                  msg.content.startsWith('Sorry, I encountered an error:') ||
+                  msg.error)
+            );
+
+            // If last message is a user message, remove it (it was from a cancelled request)
+            if (cleaned.length > 0 && cleaned[cleaned.length - 1].role === MessageRole.User) {
+                cleaned = cleaned.slice(0, -1);
+            }
+
+            cleanedMessages = cleaned; // Capture for API call
+            return cleaned;
+        });
+
         const userMessage = createMessage(MessageRole.User, content);
         setMessages((prev) => [...prev, userMessage]);
         setIsLoading(true);
+
+        // Generate a unique session ID for this request
+        const sessionId = `session-${Date.now()}`;
+        setCurrentSessionId(sessionId);
 
         // Check if this is embedded AI (Candle) - might need to download
         const selectedModel = availableModels.find((m) => m.id === selectedModelId);
@@ -332,18 +415,34 @@ export const AIPanel = ({
             };
             setMessages((prev) => [...prev, thinkingMessage]);
 
-            // Add saved endpoint for OpenAI-compatible and Ollama providers
+            // Add endpoint for OpenAI-compatible and Ollama providers
+            // Priority: 1) model config (from runtime config/backend), 2) localStorage (user override), 3) runtime config fallback
+            let endpointToUse: string | undefined;
+            if (selectedModel.provider === ModelProvider.OpenAICompatible || selectedModel.provider === ModelProvider.Ollama) {
+                // Prefer the model's endpoint (which comes from runtime config or backend)
+                // Only use localStorage as a fallback if the model doesn't have an endpoint set
+                endpointToUse = selectedModel.endpoint ||
+                               localStorage.getItem('defaultAIEndpoint') ||
+                               await getDefaultEndpoint(selectedModel.provider);
+            }
+
             const modelConfigWithEndpoint = {
                 ...selectedModel,
-                ...(selectedModel.provider === ModelProvider.OpenAICompatible || selectedModel.provider === ModelProvider.Ollama
-                    ? { endpoint: localStorage.getItem('defaultAIEndpoint') || selectedModel.endpoint }
-                    : {})
+                ...(endpointToUse ? { endpoint: endpointToUse } : {})
             };
 
+            console.log('[AIPanel] Selected model:', selectedModel.id);
+            console.log('[AIPanel] Selected model endpoint:', selectedModel.endpoint);
+            console.log('[AIPanel] endpointToUse:', endpointToUse);
+            console.log('[AIPanel] Final modelConfigWithEndpoint.endpoint:', modelConfigWithEndpoint.endpoint);
+
+            // Use the cleaned messages (not the stale 'messages' variable!)
+            const messagesToSend = [...cleanedMessages, userMessage];
+
             const response = await runInference({
-                sessionId: 'default', // TODO: Implement session management
+                sessionId: sessionId,
                 modelConfig: modelConfigWithEndpoint,
-                messages: [...messages, userMessage],
+                messages: messagesToSend,
                 fsContext,
                 mode,
             }, isStreaming ? (chunk) => {
@@ -396,14 +495,26 @@ export const AIPanel = ({
                 setMessages((prev) => prev.filter(msg => msg.id !== downloadMsgId));
             }
 
-            const errorMessage = createMessage(
-                MessageRole.Assistant,
-                `Sorry, I encountered an error: ${error.message || 'Unknown error'}`
-            );
-            errorMessage.error = error.message;
-            setMessages((prev) => [...prev, errorMessage]);
+            // Don't show error message if the inference was cancelled by user
+            const isCancelled = error.message?.includes('cancelled by user') ||
+                               error.message?.includes('Inference cancelled');
+
+            if (isCancelled) {
+                // Remove the "thinking" placeholder message if present
+                setMessages((prev) => prev.filter(msg =>
+                    !(msg.content === '💭 Thinking...' || msg.isStreaming)
+                ));
+            } else {
+                const errorMessage = createMessage(
+                    MessageRole.Assistant,
+                    `Sorry, I encountered an error: ${error.message || 'Unknown error'}`
+                );
+                errorMessage.error = error.message;
+                setMessages((prev) => [...prev, errorMessage]);
+            }
         } finally {
             setIsLoading(false);
+            setCurrentSessionId(null);
         }
     };
 
@@ -514,6 +625,7 @@ export const AIPanel = ({
                     <AIChat
                         messages={messages}
                         onSendMessage={handleSendMessage}
+                        onStopGeneration={handleStopGeneration}
                         isLoading={isLoading}
                         isStreaming={isLoading && isStreamingProvider} // Only treat as streaming if loading AND provider matches
                         loadingStatus="Thinking..."

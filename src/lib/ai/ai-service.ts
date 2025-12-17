@@ -17,11 +17,11 @@ import {
     ChatMessage,
     MessageRole,
 } from '@/types/ai-types';
-import {
-    runTransformerJSInference,
-    isTransformerJSAvailable,
-    getAvailableTransformerJSModels,
-} from './providers/transformerjs';
+// Lazy import for TransformerJS to avoid SSR/build issues
+// Import only when actually needed
+const getTransformerJS = async () => {
+    return await import('./providers/transformerjs');
+};
 import { buildFileSystemContext } from './context-builder';
 import { getTemplateForMode, buildPrompt } from './prompts';
 
@@ -76,7 +76,16 @@ export const KNOWN_MODELS: ModelConfig[] = [
 export async function getProvidersStatus(): Promise<ProviderStatus[]> {
     try {
         // Get backend provider status (Ollama, etc.)
-        const backendStatuses = await invoke<ProviderStatus[]>('get_ai_providers_status');
+        // Pass Ollama endpoint from config
+        // IMPORTANT: Load runtime config to get correct endpoint
+        const { loadRuntimeConfig } = await import('./config');
+        const runtimeConfig = await loadRuntimeConfig();
+
+        console.log('[getProvidersStatus] Calling backend with ollamaEndpoint:', runtimeConfig.endpoints.ollama);
+        const backendStatuses = await invoke<ProviderStatus[]>('get_ai_providers_status', {
+            ollamaEndpoint: runtimeConfig.endpoints.ollama
+        });
+        console.log('[getProvidersStatus] Received backend statuses:', backendStatuses);
 
         // Merge backend/installed models with KNOWN_MODELS for Ollama
         // Robust check: Handle case sensitivity or missing status
@@ -101,26 +110,70 @@ export async function getProvidersStatus(): Promise<ProviderStatus[]> {
             }
 
             const installedIds = new Set(ollamaStatus.availableModels.map(m => m.modelId));
-            console.log('[ai-service] Installed Ollama modelIds from backend:', Array.from(installedIds));
 
+            // Add uninstalled KNOWN_MODELS with the correct endpoint
             KNOWN_MODELS.forEach(known => {
-                if (known.provider === ModelProvider.Ollama) {
-                    console.log('[ai-service] Checking KNOWN_MODEL:', known.modelId, 'isInstalled:', installedIds.has(known.modelId));
-                }
-                if (!installedIds.has(known.modelId)) {
-                    ollamaStatus.availableModels.push(known);
+                if (known.provider === ModelProvider.Ollama && !installedIds.has(known.modelId)) {
+                    const modelWithEndpoint = {
+                        ...known,
+                        endpoint: runtimeConfig.endpoints.ollama,
+                        isAvailable: false // Mark as not available since not installed
+                    };
+                    console.log('[getProvidersStatus] Adding KNOWN_MODEL:', known.modelId, 'with endpoint:', modelWithEndpoint.endpoint);
+                    ollamaStatus.availableModels.push(modelWithEndpoint);
                 }
             });
+
+            // Log all Ollama models with their endpoints
+            console.log('[getProvidersStatus] Final Ollama models:',
+                ollamaStatus.availableModels.map(m => ({
+                    id: m.id,
+                    modelId: m.modelId,
+                    endpoint: m.endpoint,
+                    isAvailable: m.isAvailable
+                }))
+            );
         }
 
-        // Add TransformerJS status (browser-based)
-        // TransformerJS is a client-side dependency, so it's always "available" to try
-        // The actual load happens on inference
+        // Add TransformerJS status (browser-based) without loading the module
+        // We define models statically to avoid loading the heavy TransformerJS library
+        // until it's actually needed
         const transformerJSStatus: ProviderStatus = {
             provider: ModelProvider.TransformerJS,
             isAvailable: true,
             version: '2.17.2',
-            availableModels: getAvailableTransformerJSModels(),
+            availableModels: [
+                {
+                    id: 'transformerjs-distilbart',
+                    name: 'DistilBART CNN (Small)',
+                    provider: ModelProvider.TransformerJS,
+                    modelId: 'Xenova/distilbart-cnn-6-6',
+                    parameters: {
+                        temperature: 0.7,
+                        topP: 0.9,
+                        maxTokens: 512,
+                        stream: false,
+                    },
+                    isAvailable: true,
+                    sizeBytes: 268_000_000,
+                    recommendedFor: [AIMode.QA],
+                },
+                {
+                    id: 'transformerjs-bart-large',
+                    name: 'BART Large CNN',
+                    provider: ModelProvider.TransformerJS,
+                    modelId: 'Xenova/bart-large-cnn',
+                    parameters: {
+                        temperature: 0.7,
+                        topP: 0.9,
+                        maxTokens: 1024,
+                        stream: false,
+                    },
+                    isAvailable: true,
+                    sizeBytes: 1_630_000_000,
+                    recommendedFor: [AIMode.QA],
+                },
+            ],
         };
 
         return [transformerJSStatus, ...backendStatuses];
@@ -138,7 +191,8 @@ export async function getProviderModels(
     endpoint?: string
 ): Promise<ModelConfig[]> {
     if (provider === ModelProvider.TransformerJS) {
-        return getAvailableTransformerJSModels();
+        const transformerJS = await getTransformerJS();
+        return transformerJS.getAvailableTransformerJSModels();
     }
 
     try {
@@ -160,7 +214,8 @@ export async function checkProviderAvailability(
     endpoint?: string
 ): Promise<boolean> {
     if (provider === ModelProvider.TransformerJS) {
-        return await isTransformerJSAvailable();
+        const transformerJS = await getTransformerJS();
+        return await transformerJS.isTransformerJSAvailable();
     }
 
     try {
@@ -171,6 +226,19 @@ export async function checkProviderAvailability(
     } catch (error) {
         console.error(`Failed to check availability for ${provider}:`, error);
         return false;
+    }
+}
+
+/**
+ * Cancel an ongoing inference request
+ */
+export async function cancelInference(sessionId: string): Promise<void> {
+    try {
+        await invoke('cancel_inference', { sessionId });
+        console.log('[ai-service] Cancelled inference for session:', sessionId);
+    } catch (error) {
+        console.error('[ai-service] Failed to cancel inference:', error);
+        throw error;
     }
 }
 
@@ -188,7 +256,8 @@ export async function runInference(
 
     // Route to appropriate provider
     if (request.modelConfig.provider === ModelProvider.TransformerJS) {
-        return await runTransformerJSInference(requestWithSystem, onChunk, onProgress);
+        const transformerJS = await getTransformerJS();
+        return await transformerJS.runTransformerJSInference(requestWithSystem, onChunk, onProgress);
     }
 
     // For backend providers (Ollama, OpenAI-compatible)
@@ -202,12 +271,9 @@ export async function runInference(
             });
         }
 
-        console.log('[ai-service] Calling backend with provider:', request.modelConfig.provider);
-        console.log('[ai-service] Endpoint:', request.modelConfig.endpoint);
         const response = await invoke<InferenceResponse>('run_ai_inference', {
             request: requestWithSystem,
         });
-        console.log('[ai-service] Got response from backend:', response);
 
         if (unlisten) unlisten();
         return response;
@@ -221,14 +287,13 @@ export async function runInference(
  * Prepare messages with system prompt
  */
 function prepareMessages(request: InferenceRequest): ChatMessage[] {
-    const template = getTemplateForMode(request.mode);
+    try {
+        const template = getTemplateForMode(request.mode);
 
-    // Build context string
-    const fsContextStr = request.fsContext
-        ? buildFileSystemContext(request.fsContext)
-        : 'No file system context available.';
-
-    console.log('[ai-service] prepareMessages context path:', request.fsContext?.currentPath); // DEBUG
+        // Build context string
+        const fsContextStr = request.fsContext
+            ? buildFileSystemContext(request.fsContext)
+            : 'No file system context available.';
 
     // Build system prompt
     const systemPrompt = buildPrompt(template.systemPrompt, {
@@ -249,16 +314,22 @@ function prepareMessages(request: InferenceRequest): ChatMessage[] {
         timestamp: Date.now(),
     };
 
-    // If system message exists, replace it with the new one
-    // CAUSE: Previous logic returned early if system message existed, preserving old context
-    if (systemMessageIndex !== -1) {
-        const newMessages = [...request.messages];
-        newMessages[systemMessageIndex] = systemMessage;
-        return newMessages;
-    }
+        // If system message exists, replace it with the new one
+        // CAUSE: Previous logic returned early if system message existed, preserving old context
+        if (systemMessageIndex !== -1) {
+            const newMessages = [...request.messages];
+            newMessages[systemMessageIndex] = systemMessage;
+            return newMessages;
+        }
 
-    // Add system message at the beginning if not present
-    return [systemMessage, ...request.messages];
+        // Add system message at the beginning if not present
+        return [systemMessage, ...request.messages];
+    } catch (error) {
+        console.error('[ai-service] Error in prepareMessages:', error);
+        console.error('[ai-service] Request:', request);
+        // Return messages without modification if there's an error
+        return request.messages;
+    }
 }
 
 /**

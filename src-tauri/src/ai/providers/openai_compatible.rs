@@ -71,7 +71,7 @@ pub async fn run_openai_compatible_inference(
     let mut openai_messages: Vec<OpenAIMessage> = Vec::new();
     let mut system_prompts: Vec<String> = Vec::new();
 
-    for (i, m) in request.messages.iter().enumerate() {
+    for m in request.messages.iter() {
         match m.role {
             MessageRole::System => {
                 // Collect system messages
@@ -79,24 +79,18 @@ pub async fn run_openai_compatible_inference(
             }
             MessageRole::User => {
                 // If this is the first user message and we have system prompts, prepend them
-                if i == 0 || (openai_messages.is_empty() && !system_prompts.is_empty()) {
-                    let mut content = String::new();
-                    if !system_prompts.is_empty() {
-                        content.push_str(&system_prompts.join("\n\n"));
-                        content.push_str("\n\n");
-                        system_prompts.clear(); // Clear after using
-                    }
-                    content.push_str(&m.content);
-                    openai_messages.push(OpenAIMessage {
-                        role: "user".to_string(),
-                        content,
-                    });
-                } else {
-                    openai_messages.push(OpenAIMessage {
-                        role: "user".to_string(),
-                        content: m.content.clone(),
-                    });
+                let mut content = String::new();
+                if !system_prompts.is_empty() && openai_messages.is_empty() {
+                    // This is the first user message - prepend system prompts
+                    content.push_str(&system_prompts.join("\n\n"));
+                    content.push_str("\n\n---\n\n");
+                    system_prompts.clear(); // Clear after using
                 }
+                content.push_str(&m.content);
+                openai_messages.push(OpenAIMessage {
+                    role: "user".to_string(),
+                    content,
+                });
             }
             MessageRole::Assistant => {
                 openai_messages.push(OpenAIMessage {

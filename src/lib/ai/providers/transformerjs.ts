@@ -20,14 +20,21 @@ let transformersModule: any = null;
 
 async function loadTransformers() {
     if (!transformersModule) {
-        // @ts-ignore - dynamic import
-        transformersModule = await import('@xenova/transformers');
+        try {
+            console.log('[TransformerJS] Loading @xenova/transformers module...');
+            // @ts-ignore - dynamic import
+            transformersModule = await import('@xenova/transformers');
+            console.log('[TransformerJS] Module loaded successfully');
 
-        // Configure environment for browser execution
-        // Disable local model checking to prevent FS errors
-        if (transformersModule.env) {
-            transformersModule.env.allowLocalModels = false;
-            transformersModule.env.useBrowserCache = true;
+            // Configure environment for browser execution
+            // Disable local model checking to prevent FS errors
+            if (transformersModule.env) {
+                transformersModule.env.allowLocalModels = false;
+                transformersModule.env.useBrowserCache = true;
+            }
+        } catch (error) {
+            console.error('[TransformerJS] Failed to load module:', error);
+            throw error;
         }
     }
     return transformersModule;
