@@ -38,7 +38,7 @@ import {
     createMessage,
     getDefaultModelForMode,
 } from '@/lib/ai/ai-service';
-import { aiConfig, getDefaultEndpoint, loadRuntimeConfig } from '@/lib/ai/config';
+import { aiConfig, getDefaultEndpoint, loadAIConfig } from '@/lib/ai/config';
 
 const useStyles = makeStyles({
     container: {
@@ -149,8 +149,8 @@ export const AIPanel = ({
     useEffect(() => {
         async function initialize() {
             try {
-                // Load runtime config first
-                const runtimeConfig = await loadRuntimeConfig();
+                // Load config first
+                const config = loadAIConfig();
 
                 const statuses = await getProvidersStatus();
 
@@ -168,9 +168,9 @@ export const AIPanel = ({
                 const savedModelId = localStorage.getItem('defaultAIModel');
                 const savedEndpoint = localStorage.getItem('defaultAIEndpoint');
 
-                // Use runtime config as fallback
-                const defaultProvider = savedProvider || runtimeConfig.defaultProvider;
-                const defaultEndpoint = savedEndpoint || runtimeConfig.endpoints.ollama || runtimeConfig.endpoints.openaiCompatible;
+                // Use config as fallback
+                const defaultProvider = savedProvider || config.defaultProvider;
+                const defaultEndpoint = savedEndpoint || config.endpoints.ollama || config.endpoints.openaiCompatible;
                 const defaultModelId = savedModelId || (defaultProvider === ModelProvider.OpenAICompatible ? 'openai-compatible-generic' : null);
 
                 // If we're using OpenAI-compatible provider, create the generic model

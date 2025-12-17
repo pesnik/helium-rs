@@ -39,7 +39,7 @@ import {
 } from '@fluentui/react-icons';
 import { ModelConfig, ModelParameters, ModelProvider, AIMode, MessageRole } from '@/types/ai-types';
 import { runInference, createMessage } from '@/lib/ai/ai-service';
-import { loadRuntimeConfig } from '@/lib/ai/config';
+import { loadAIConfig } from '@/lib/ai/config';
 
 const useStyles = makeStyles({
     dialogSurface: {
@@ -169,16 +169,13 @@ export function AISettingsPanel({
     });
     const [customEndpoint, setCustomEndpoint] = React.useState<string>('');
 
-    // Load runtime config on mount to get the correct default endpoints
+    // Load config on mount to get the correct default endpoints
     React.useEffect(() => {
-        async function loadEndpoint() {
-            const config = await loadRuntimeConfig();
-            const defaultEndpoint = activeProvider === ModelProvider.OpenAICompatible
-                ? config.endpoints.openaiCompatible
-                : config.endpoints.ollama;
-            setCustomEndpoint(defaultEndpoint);
-        }
-        loadEndpoint();
+        const config = loadAIConfig();
+        const defaultEndpoint = activeProvider === ModelProvider.OpenAICompatible
+            ? config.endpoints.openaiCompatible
+            : config.endpoints.ollama;
+        setCustomEndpoint(defaultEndpoint);
     }, [activeProvider]);
 
     // Track if current config is set as default

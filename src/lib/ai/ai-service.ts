@@ -77,13 +77,12 @@ export async function getProvidersStatus(): Promise<ProviderStatus[]> {
     try {
         // Get backend provider status (Ollama, etc.)
         // Pass Ollama endpoint from config
-        // IMPORTANT: Load runtime config to get correct endpoint
-        const { loadRuntimeConfig } = await import('./config');
-        const runtimeConfig = await loadRuntimeConfig();
+        const { loadAIConfig } = await import('./config');
+        const config = loadAIConfig();
 
-        console.log('[getProvidersStatus] Calling backend with ollamaEndpoint:', runtimeConfig.endpoints.ollama);
+        console.log('[getProvidersStatus] Calling backend with ollamaEndpoint:', config.endpoints.ollama);
         const backendStatuses = await invoke<ProviderStatus[]>('get_ai_providers_status', {
-            ollamaEndpoint: runtimeConfig.endpoints.ollama
+            ollamaEndpoint: config.endpoints.ollama
         });
         console.log('[getProvidersStatus] Received backend statuses:', backendStatuses);
 
@@ -116,7 +115,7 @@ export async function getProvidersStatus(): Promise<ProviderStatus[]> {
                 if (known.provider === ModelProvider.Ollama && !installedIds.has(known.modelId)) {
                     const modelWithEndpoint = {
                         ...known,
-                        endpoint: runtimeConfig.endpoints.ollama,
+                        endpoint: config.endpoints.ollama,
                         isAvailable: false // Mark as not available since not installed
                     };
                     console.log('[getProvidersStatus] Adding KNOWN_MODEL:', known.modelId, 'with endpoint:', modelWithEndpoint.endpoint);
