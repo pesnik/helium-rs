@@ -183,8 +183,7 @@ export function AISettingsPanel({
         const savedProvider = localStorage.getItem('defaultAIProvider');
         const savedModel = localStorage.getItem('defaultAIModel');
         const isProviderMatch = savedProvider === activeProvider;
-        const isModelMatch = savedModel === modelConfig?.id ||
-            (savedModel === 'openai-compatible-generic' && activeProvider === ModelProvider.OpenAICompatible);
+        const isModelMatch = savedModel === modelConfig?.id;
         return isProviderMatch && isModelMatch;
     });
 
@@ -216,8 +215,7 @@ export function AISettingsPanel({
         const savedProvider = localStorage.getItem('defaultAIProvider');
         const savedModel = localStorage.getItem('defaultAIModel');
         const isProviderMatch = savedProvider === activeProvider;
-        const isModelMatch = savedModel === modelConfig?.id ||
-            (savedModel === 'openai-compatible-generic' && activeProvider === ModelProvider.OpenAICompatible);
+        const isModelMatch = savedModel === modelConfig?.id;
         setIsDefault(isProviderMatch && isModelMatch);
     }, [activeProvider, modelConfig?.id]);
 
@@ -656,11 +654,8 @@ export function AISettingsPanel({
                                         setIsDefault(false);
                                     } else {
                                         localStorage.setItem('defaultAIProvider', activeProvider);
-                                        // For OpenAI-compatible with no models, use a generic model ID
-                                        const modelIdToSave = (activeProvider === ModelProvider.OpenAICompatible && displayModels.length === 0)
-                                            ? 'openai-compatible-generic'
-                                            : modelConfig.id;
-                                        localStorage.setItem('defaultAIModel', modelIdToSave);
+                                        // Save the model ID (uses config default for OpenAI-compatible)
+                                        localStorage.setItem('defaultAIModel', modelConfig.id);
                                         // Save endpoint for OpenAI-compatible and Ollama providers
                                         if (activeProvider === ModelProvider.OpenAICompatible || activeProvider === ModelProvider.Ollama) {
                                             localStorage.setItem('defaultAIEndpoint', customEndpoint);

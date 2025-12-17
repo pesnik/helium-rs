@@ -63,7 +63,13 @@ pub async fn run_openai_compatible_inference(
         suggested_actions: Some(vec!["Configure endpoint in model settings".to_string()]),
     })?;
 
-    let url = format!("{}/chat/completions", endpoint);
+    // Support both with and without /v1 prefix
+    // If endpoint already ends with /v1, use it as-is
+    let url = if endpoint.ends_with("/v1") || endpoint.contains("/v1/") {
+        format!("{}/chat/completions", endpoint.trim_end_matches('/'))
+    } else {
+        format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'))
+    };
 
     // Convert messages to OpenAI format
     // Handle system messages specially - merge them into first user message
@@ -192,7 +198,12 @@ pub async fn run_openai_compatible_inference(
 
 /// Check if OpenAI-compatible endpoint is available
 pub async fn check_openai_compatible_availability(endpoint: &str) -> Result<bool, AIError> {
-    let url = format!("{}/models", endpoint);
+    // Support both with and without /v1 prefix
+    let url = if endpoint.ends_with("/v1") || endpoint.contains("/v1/") {
+        format!("{}/models", endpoint.trim_end_matches('/'))
+    } else {
+        format!("{}/v1/models", endpoint.trim_end_matches('/'))
+    };
 
     match reqwest::get(&url).await {
         Ok(response) => Ok(response.status().is_success()),

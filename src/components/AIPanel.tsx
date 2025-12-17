@@ -170,18 +170,24 @@ export const AIPanel = ({
 
                 // Use config as fallback
                 const defaultProvider = savedProvider || config.defaultProvider;
-                const defaultEndpoint = savedEndpoint || config.endpoints.ollama || config.endpoints.openaiCompatible;
-                const defaultModelId = savedModelId || (defaultProvider === ModelProvider.OpenAICompatible ? 'openai-compatible-generic' : null);
+                // Get the correct endpoint based on the provider
+                const defaultEndpoint = savedEndpoint || (
+                    defaultProvider === ModelProvider.OpenAICompatible
+                        ? config.endpoints.openaiCompatible
+                        : config.endpoints.ollama
+                );
+                const configuredOpenAIModelId = config.defaultModels.openai;
+                const defaultModelId = savedModelId || (defaultProvider === ModelProvider.OpenAICompatible ? configuredOpenAIModelId : null);
 
-                // If we're using OpenAI-compatible provider, create the generic model
-                if ((defaultModelId === 'openai-compatible-generic' || defaultProvider === ModelProvider.OpenAICompatible) && defaultEndpoint) {
+                // If we're using OpenAI-compatible provider, create the model
+                if (defaultProvider === ModelProvider.OpenAICompatible && defaultEndpoint) {
                     // Check if model doesn't already exist
-                    if (!allModels.find(m => m.id === 'openai-compatible-generic')) {
+                    if (!allModels.find(m => m.id === configuredOpenAIModelId)) {
                         const genericModel: ModelConfig = {
-                            id: 'openai-compatible-generic',
-                            name: 'OpenAI Compatible Server',
+                            id: configuredOpenAIModelId,
+                            name: `OpenAI Compatible (${configuredOpenAIModelId})`,
                             provider: ModelProvider.OpenAICompatible,
-                            modelId: aiConfig.defaultModels.openai,
+                            modelId: configuredOpenAIModelId,
                             parameters: {
                                 temperature: aiConfig.parameters.temperature,
                                 topP: aiConfig.parameters.topP,
