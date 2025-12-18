@@ -5,7 +5,7 @@
  * This replaces the subprocess-based implementation with direct in-process calls.
  */
 
-use crate::mcp::{MCPConfig, MCPError, NativeMCPServer, ServerInfo, FileInfo, ToolDefinition};
+use crate::mcp::{MCPConfig, MCPError, NativeMCPServer, ServerInfo, FileInfo, DirectorySizeInfo, ToolDefinition};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -140,7 +140,7 @@ pub async fn get_mcp_tools(state: State<'_, NativeMCPState>) -> Result<Vec<MCPTo
         .into_iter()
         .map(|tool| {
             let annotations = match tool.name.as_str() {
-                "read_file" | "list_directory" | "get_file_info" | "search_files" => {
+                "read_file" | "list_directory" | "get_file_info" | "search_files" | "get_directory_size" => {
                     Some(ToolAnnotations {
                         read_only_hint: Some(true),
                         idempotent_hint: Some(true),
@@ -325,6 +325,24 @@ pub async fn execute_mcp_tool(
                         .create_directory(path.to_string())
                         .await
                         .map(|_| "Directory created successfully".to_string())
+                }
+                "get_directory_size" => {
+                    let path = request
+                        .arguments
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .ok_or("Missing 'path' argument")?;
+
+                    server
+                        .get_directory_size(path.to_string())
+                        .await
+                        .and_then(|size_info| {
+                            serde_json::to_string_pretty(&size_info).map_err(|e| MCPError {
+                                code: -32700,
+                                message: format!("Failed to serialize directory size info: {}", e),
+                                data: None,
+                            })
+                        })
                 }
                 _ => {
                     return Ok(ExecuteToolResponse {

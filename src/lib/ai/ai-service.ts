@@ -252,7 +252,17 @@ export async function runInference(
 ): Promise<InferenceResponse> {
     // Add system prompt based on mode
     const messagesWithSystem = prepareMessages(request);
-    const requestWithSystem = { ...request, messages: messagesWithSystem };
+    let requestWithSystem = { ...request, messages: messagesWithSystem };
+
+    // Add native function calling tools for Agent mode (OpenAI-compatible provider only)
+    // This enables the model to use OpenAI's native function calling format instead of prompt-based tool calling
+    if (request.mode === AIMode.Agent && request.modelConfig.provider === ModelProvider.OpenAICompatible) {
+        const tools = mcpService.getToolsInOpenAIFormat();
+        if (tools.length > 0) {
+            requestWithSystem = { ...requestWithSystem, tools };
+            console.log('[ai-service] Added native function calling tools:', tools.length);
+        }
+    }
 
     // Route to appropriate provider
     if (request.modelConfig.provider === ModelProvider.TransformerJS) {
@@ -305,6 +315,12 @@ function prepareMessages(request: InferenceRequest): ChatMessage[] {
         current_path: request.fsContext?.currentPath || '/',
         mcp_tools: mcpToolsStr,
     });
+
+    console.log('[ai-service] System prompt built:');
+    console.log('[ai-service]   Mode:', request.mode);
+    console.log('[ai-service]   System prompt length:', systemPrompt.length);
+    console.log('[ai-service]   System prompt preview (first 500 chars):', systemPrompt.substring(0, 500));
+    console.log('[ai-service]   MCP tools included:', mcpToolsStr.substring(0, 200));
 
     // Check if system message already exists
     const systemMessageIndex = request.messages.findIndex(

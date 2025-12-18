@@ -82,6 +82,9 @@ pub struct ChatMessage {
     pub is_streaming: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Tool calls in OpenAI format (for native function calling)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenAIToolCall>>,
 }
 
 /// Inference request
@@ -94,6 +97,9 @@ pub struct InferenceRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fs_context: Option<FileSystemContext>,
     pub mode: AIMode,
+    /// Optional tools for native function calling (OpenAI format)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
 }
 
 /// File system context
@@ -137,6 +143,40 @@ pub struct ScanSummary {
 pub struct FileInfo {
     pub path: String,
     pub size: u64,
+}
+
+/// OpenAI-compatible tool definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tool {
+    pub r#type: String, // "function"
+    pub function: ToolFunction,
+}
+
+/// Tool function definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolFunction {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value, // JSON Schema object
+}
+
+/// Tool call in response (OpenAI format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIToolCall {
+    pub id: String,
+    pub r#type: String, // "function"
+    pub function: OpenAIToolCallFunction,
+}
+
+/// Tool call function data (OpenAI format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIToolCallFunction {
+    pub name: String,
+    pub arguments: String, // JSON string of arguments
 }
 
 /// Inference response

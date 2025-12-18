@@ -280,6 +280,61 @@ impl NativeMCPServer {
         Ok(())
     }
 
+    /// Get recursive size of a directory
+    pub async fn get_directory_size(&self, path: String) -> MCPResult<DirectorySizeInfo> {
+        let path = PathBuf::from(&path);
+
+        if !self.is_path_allowed(&path).await {
+            return Err(MCPError {
+                code: -32001,
+                message: format!("Access denied: {} is not in allowed directories", path.display()),
+                data: None,
+            });
+        }
+
+        debug!("Calculating directory size: {}", path.display());
+
+        fn calculate_size(path: &Path) -> std::io::Result<(u64, usize, usize)> {
+            let mut total_size: u64 = 0;
+            let mut file_count: usize = 0;
+            let mut dir_count: usize = 0;
+
+            if path.is_file() {
+                let metadata = fs::metadata(path)?;
+                return Ok((metadata.len(), 1, 0));
+            }
+
+            for entry in fs::read_dir(path)? {
+                let entry = entry?;
+                let entry_path = entry.path();
+
+                if entry_path.is_dir() {
+                    dir_count += 1;
+                    let (size, files, dirs) = calculate_size(&entry_path)?;
+                    total_size += size;
+                    file_count += files;
+                    dir_count += dirs;
+                } else {
+                    let metadata = entry.metadata()?;
+                    total_size += metadata.len();
+                    file_count += 1;
+                }
+            }
+
+            Ok((total_size, file_count, dir_count))
+        }
+
+        let (total_bytes, file_count, dir_count) = calculate_size(&path)?;
+
+        Ok(DirectorySizeInfo {
+            path: path.to_string_lossy().to_string(),
+            total_bytes,
+            file_count,
+            dir_count,
+            human_readable: format_bytes(total_bytes),
+        })
+    }
+
     /// Get list of available tools
     pub fn get_tools() -> Vec<ToolDefinition> {
         vec![
@@ -317,7 +372,7 @@ impl NativeMCPServer {
             },
             ToolDefinition {
                 name: "list_directory".to_string(),
-                description: "Get a detailed listing of all files and directories in a specified path. Returns file metadata including names, sizes, types, and modification times.".to_string(),
+                description: "Get a detailed listing of all files and directories in a specified path. Returns file metadata including names, sizes, types, and modification times. For files, 'size' is the file size in bytes. For directories, 'size' is only the directory metadata size, NOT the total size of contents. To find which folder uses most space, you'll need to recursively list subdirectories and sum file sizes, or inform the user that recursive directory size calculation is not available in the current tool.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -393,6 +448,20 @@ impl NativeMCPServer {
                     "required": ["path"]
                 }),
             },
+            ToolDefinition {
+                name: "get_directory_size".to_string(),
+                description: "Calculate the total size of a directory recursively. Returns the total size in bytes and human-readable format, along with file and directory counts. Use this when the user asks which folder is using the most space or wants to compare directory sizes.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the directory to analyze"
+                        }
+                    },
+                    "required": ["path"]
+                }),
+            },
         ]
     }
 }
@@ -413,6 +482,34 @@ pub struct FileInfo {
     pub is_dir: bool,
     pub size: u64,
     pub modified: Option<u64>,
+}
+
+/// Directory size information
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DirectorySizeInfo {
+    pub path: String,
+    pub total_bytes: u64,
+    pub file_count: usize,
+    pub dir_count: usize,
+    pub human_readable: String,
+}
+
+/// Format bytes into human-readable string
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+
+    if unit_index == 0 {
+        format!("{} {}", bytes, UNITS[unit_index])
+    } else {
+        format!("{:.2} {}", size, UNITS[unit_index])
+    }
 }
 
 /// Tool definition

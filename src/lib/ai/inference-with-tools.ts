@@ -53,21 +53,34 @@ export async function runInferenceWithTools(
         // Run inference
         const response = await runInference(currentRequest, onChunk, onProgress);
 
-        // Check if response contains tool calls
-        const hasToolCalls = detectToolCall(response.message.content);
-
         console.log(`[InferenceWithTools] Response content preview:`, response.message.content.substring(0, 200));
-        console.log(`[InferenceWithTools] Has tool calls:`, hasToolCalls);
 
-        if (!hasToolCalls) {
-            // No tool calls - we're done
-            console.log(`[InferenceWithTools] No tool calls detected, finishing`);
-            finalResponse = response;
-            break;
+        // Check for native tool calls first (OpenAI format in response.message.toolCalls)
+        let toolCalls: any[] = [];
+
+        if (response.message.toolCalls && response.message.toolCalls.length > 0) {
+            // Native function calling - convert OpenAI format to our internal format
+            console.log(`[InferenceWithTools] Found ${response.message.toolCalls.length} native tool calls`);
+            toolCalls = response.message.toolCalls.map((tc: any) => ({
+                id: tc.id,
+                name: tc.function.name,
+                arguments: JSON.parse(tc.function.arguments), // OpenAI returns arguments as JSON string
+            }));
+        } else {
+            // Fallback to prompt-based tool calling (XML/JSON in content)
+            const hasToolCalls = detectToolCall(response.message.content);
+            console.log(`[InferenceWithTools] Has prompt-based tool calls:`, hasToolCalls);
+
+            if (!hasToolCalls) {
+                // No tool calls - we're done
+                console.log(`[InferenceWithTools] No tool calls detected, finishing`);
+                finalResponse = response;
+                break;
+            }
+
+            // Extract tool calls from content
+            toolCalls = extractToolCalls(response.message.content);
         }
-
-        // Extract tool calls
-        const toolCalls = extractToolCalls(response.message.content);
 
         console.log(`[InferenceWithTools] Extracted ${toolCalls.length} tool calls`);
 
@@ -110,7 +123,15 @@ export async function runInferenceWithTools(
                 const executionTimeMs = Date.now() - startTime;
 
                 console.log(`[InferenceWithTools] ✅ Tool ${toolCall.name} executed in ${executionTimeMs}ms`);
+                console.log(`[InferenceWithTools]    Result length: ${result.content.length} characters`);
                 console.log(`[InferenceWithTools]    Result preview: ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}`);
+
+                // Log full result for debugging (useful when inspecting tool responses)
+                if (result.content.length < 1000) {
+                    console.log(`[InferenceWithTools]    Full result:`, result.content);
+                } else {
+                    console.log(`[InferenceWithTools]    Full result (first 1000 chars):`, result.content.substring(0, 1000) + '...');
+                }
 
                 // Update tool execution data (success status)
                 toolExecution.status = result.isError ? 'error' : 'success';

@@ -241,6 +241,21 @@ class MCPService {
     getToolByName(name: string): MCPTool | undefined {
         return this.tools.find(t => t.name === name);
     }
+
+    /**
+     * Convert MCP tools to OpenAI function calling format
+     * This is used for native function calling with models that support it
+     */
+    getToolsInOpenAIFormat(): import('@/types/ai-types').Tool[] {
+        return this.tools.map(tool => ({
+            type: 'function',
+            function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.inputSchema,
+            }
+        }));
+    }
 }
 
 // Export singleton instance

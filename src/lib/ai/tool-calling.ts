@@ -29,6 +29,10 @@ export function detectToolCall(content: string): boolean {
 export function extractToolCalls(content: string): ToolCall[] {
     const toolCalls: ToolCall[] = [];
 
+    console.log('[ToolCalling] Extracting tool calls from content:');
+    console.log('[ToolCalling] Content length:', content.length);
+    console.log('[ToolCalling] Content preview:', content.substring(0, 300));
+
     // First, try to extract XML-wrapped tool calls
     const xmlRegex = /<tool_call>([\s\S]*?)<\/tool_call>/g;
     let match;

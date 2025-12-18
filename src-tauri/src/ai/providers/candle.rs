@@ -265,6 +265,7 @@ pub async fn run_candle_inference(window: tauri::Window, request: &InferenceRequ
             context_paths: None,
             is_streaming: Some(false),
             error: None,
+            tool_calls: None,
         },
         is_complete: true,
         usage: Some(TokenUsage {

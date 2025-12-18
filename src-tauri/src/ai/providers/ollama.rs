@@ -364,6 +364,7 @@ pub async fn run_ollama_inference(
         context_paths: None,
         is_streaming: None,
         error: None,
+        tool_calls: None,
     };
 
     Ok(InferenceResponse {

@@ -544,12 +544,20 @@ export const AIPanel = ({
                                   console.error(`[AIPanel] ❌ Tool ${event.toolName} failed:`, event.error);
                               } else {
                                   console.log(`[AIPanel] ✅ Tool ${event.toolName} completed in ${event.executionTimeMs}ms`);
+                                  console.log(`[AIPanel]    Result length:`, event.result?.length);
                                   console.log(`[AIPanel]    Result preview:`, event.result?.substring(0, 100));
+
+                                  // Log full result for debugging (useful when inspecting tool responses)
+                                  if (event.result && event.result.length < 1000) {
+                                      console.log(`[AIPanel]    Full result:`, event.result);
+                                  } else if (event.result) {
+                                      console.log(`[AIPanel]    Full result (first 1000 chars):`, event.result.substring(0, 1000) + '...');
+                                  }
                               }
                           } else {
                               // Tool started
                               console.log(`[AIPanel] 🔧 Starting tool: ${event.toolName}`);
-                              console.log(`[AIPanel]    Arguments:`, event.arguments);
+                              console.log(`[AIPanel]    Arguments:`, JSON.stringify(event.arguments, null, 2));
                           }
                       },
                   })

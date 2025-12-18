@@ -21,12 +21,19 @@ struct OpenAIChatRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop: Option<Vec<String>>,
+    /// Tools for native function calling
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<crate::ai::Tool>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct OpenAIMessage {
     role: String,
-    content: String,
+    /// Content can be null when tool_calls are present
+    content: Option<String>,
+    /// Tool calls in the response (OpenAI format)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<crate::ai::OpenAIToolCall>>,
 }
 
 /// OpenAI chat response format
@@ -95,13 +102,15 @@ pub async fn run_openai_compatible_inference(
                 content.push_str(&m.content);
                 openai_messages.push(OpenAIMessage {
                     role: "user".to_string(),
-                    content,
+                    content: Some(content),
+                    tool_calls: None,
                 });
             }
             MessageRole::Assistant => {
                 openai_messages.push(OpenAIMessage {
                     role: "assistant".to_string(),
-                    content: m.content.clone(),
+                    content: Some(m.content.clone()),
+                    tool_calls: m.tool_calls.clone(),
                 });
             }
         }
@@ -115,7 +124,18 @@ pub async fn run_openai_compatible_inference(
         max_tokens: request.model_config.parameters.max_tokens,
         stream: false,
         stop: request.model_config.parameters.stop_sequences.clone(),
+        tools: request.tools.clone(),
     };
+
+    println!("[OpenAI-Compatible] Request URL: {}", url);
+    println!("[OpenAI-Compatible] Model: {}", request.model_config.model_id);
+    println!("[OpenAI-Compatible] Tools included: {}", request.tools.is_some());
+    if let Some(tools) = &request.tools {
+        println!("[OpenAI-Compatible] Number of tools: {}", tools.len());
+        for tool in tools {
+            println!("[OpenAI-Compatible]   - {}: {}", tool.function.name, tool.function.description);
+        }
+    }
 
     let mut client_builder = reqwest::Client::builder();
     let client = client_builder.build().map_err(|e| AIError {
@@ -172,14 +192,28 @@ pub async fn run_openai_compatible_inference(
         suggested_actions: None,
     })?;
 
+    println!("[OpenAI-Compatible] Response received");
+
+    let content = choice.message.content.clone().unwrap_or_default();
+    println!("[OpenAI-Compatible] Content length: {}", content.len());
+    println!("[OpenAI-Compatible] Has tool_calls: {}", choice.message.tool_calls.is_some());
+
+    if let Some(tool_calls) = &choice.message.tool_calls {
+        println!("[OpenAI-Compatible] Number of tool calls: {}", tool_calls.len());
+        for tc in tool_calls {
+            println!("[OpenAI-Compatible]   - {} ({})", tc.function.name, tc.id);
+        }
+    }
+
     let response_message = ChatMessage {
         id: format!("msg-{}", chrono::Utc::now().timestamp_millis()),
         role: MessageRole::Assistant,
-        content: choice.message.content.clone(),
+        content,
         timestamp: chrono::Utc::now().timestamp_millis(),
         context_paths: None,
         is_streaming: None,
         error: None,
+        tool_calls: choice.message.tool_calls.clone(),
     };
 
     let usage = openai_response.usage.map(|u| TokenUsage {

@@ -90,6 +90,40 @@ export interface ToolExecutionData {
 }
 
 /**
+ * OpenAI-compatible tool definition
+ */
+export interface Tool {
+    type: string; // "function"
+    function: ToolFunction;
+}
+
+/**
+ * Tool function definition
+ */
+export interface ToolFunction {
+    name: string;
+    description: string;
+    parameters: Record<string, any>; // JSON Schema object
+}
+
+/**
+ * Tool call in response (OpenAI format)
+ */
+export interface OpenAIToolCall {
+    id: string;
+    type: string; // "function"
+    function: OpenAIToolCallFunction;
+}
+
+/**
+ * Tool call function data (OpenAI format)
+ */
+export interface OpenAIToolCallFunction {
+    name: string;
+    arguments: string; // JSON string of arguments
+}
+
+/**
  * Chat message
  */
 export interface ChatMessage {
@@ -109,6 +143,8 @@ export interface ChatMessage {
     error?: string;
     /** Tool executions performed (for agent mode) */
     toolExecutions?: ToolExecutionData[];
+    /** Tool calls in OpenAI format (for native function calling) */
+    toolCalls?: OpenAIToolCall[];
 }
 
 /**
@@ -191,6 +227,8 @@ export interface InferenceRequest {
     fsContext?: FileSystemContext;
     /** AI mode */
     mode: AIMode;
+    /** Optional tools for native function calling (OpenAI format) */
+    tools?: Tool[];
 }
 
 /**
