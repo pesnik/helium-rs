@@ -14,7 +14,10 @@ pub mod native_server;
 pub use server::MCPServer;
 pub use types::*;
 pub use client::MCPClient;
-pub use native_server::{NativeMCPServer, ServerInfo, FileInfo, DirectorySizeInfo, ToolDefinition};
+pub use native_server::{
+    NativeMCPServer, ServerInfo, FileInfo, DirectorySizeInfo, DirectoryTreeNode,
+    MultiFileResult, EditFileResult, ToolDefinition
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

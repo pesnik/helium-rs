@@ -335,6 +335,207 @@ impl NativeMCPServer {
         })
     }
 
+    /// Get recursive directory tree structure
+    pub async fn directory_tree(&self, path: String, max_depth: Option<usize>) -> MCPResult<DirectoryTreeNode> {
+        let path = PathBuf::from(&path);
+
+        if !self.is_path_allowed(&path).await {
+            return Err(MCPError {
+                code: -32001,
+                message: format!("Access denied: {} is not in allowed directories", path.display()),
+                data: None,
+            });
+        }
+
+        debug!("Building directory tree: {}", path.display());
+
+        fn build_tree(path: &Path, current_depth: usize, max_depth: usize) -> std::io::Result<DirectoryTreeNode> {
+            let metadata = fs::metadata(path)?;
+            let name = path.file_name()
+                .unwrap_or_else(|| path.as_os_str())
+                .to_string_lossy()
+                .to_string();
+
+            let is_dir = metadata.is_dir();
+            let size = if is_dir { None } else { Some(metadata.len()) };
+
+            let children = if is_dir && current_depth < max_depth {
+                let mut child_nodes = Vec::new();
+
+                for entry in fs::read_dir(path)? {
+                    let entry = entry?;
+                    let child_path = entry.path();
+
+                    match build_tree(&child_path, current_depth + 1, max_depth) {
+                        Ok(child) => child_nodes.push(child),
+                        Err(_) => continue, // Skip entries we can't read
+                    }
+                }
+
+                child_nodes.sort_by(|a, b| {
+                    // Directories first, then alphabetically
+                    match (a.is_dir, b.is_dir) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+
+                Some(child_nodes)
+            } else {
+                None
+            };
+
+            Ok(DirectoryTreeNode {
+                name,
+                path: path.to_string_lossy().to_string(),
+                is_dir,
+                size,
+                children,
+            })
+        }
+
+        let max_depth = max_depth.unwrap_or(5); // Default to 5 levels deep
+        let tree = build_tree(&path, 0, max_depth)?;
+        Ok(tree)
+    }
+
+    /// Read multiple files at once
+    pub async fn read_multiple_files(&self, paths: Vec<String>) -> MCPResult<Vec<MultiFileResult>> {
+        debug!("Reading {} files", paths.len());
+
+        let mut results = Vec::new();
+
+        for path_str in paths {
+            let path = PathBuf::from(&path_str);
+
+            if !self.is_path_allowed(&path).await {
+                results.push(MultiFileResult {
+                    path: path_str.clone(),
+                    content: None,
+                    error: Some(format!("Access denied: {} is not in allowed directories", path.display())),
+                });
+                continue;
+            }
+
+            // Check file size limit
+            match fs::metadata(&path) {
+                Ok(metadata) => {
+                    let config = self.config.read().await;
+                    if let Some(max_size) = config.max_file_size {
+                        if metadata.len() > max_size {
+                            results.push(MultiFileResult {
+                                path: path_str.clone(),
+                                content: None,
+                                error: Some(format!("File too large: {} bytes (max: {} bytes)", metadata.len(), max_size)),
+                            });
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    results.push(MultiFileResult {
+                        path: path_str.clone(),
+                        content: None,
+                        error: Some(format!("Failed to get metadata: {}", e)),
+                    });
+                    continue;
+                }
+            }
+
+            // Try to read the file
+            match fs::read_to_string(&path) {
+                Ok(content) => {
+                    results.push(MultiFileResult {
+                        path: path_str.clone(),
+                        content: Some(content),
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    results.push(MultiFileResult {
+                        path: path_str.clone(),
+                        content: None,
+                        error: Some(format!("Failed to read file: {}", e)),
+                    });
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Edit file with pattern matching and replacement
+    pub async fn edit_file(
+        &self,
+        path: String,
+        old_text: String,
+        new_text: String,
+        dry_run: Option<bool>,
+    ) -> MCPResult<EditFileResult> {
+        let path = PathBuf::from(&path);
+
+        if !self.is_path_allowed(&path).await {
+            return Err(MCPError {
+                code: -32001,
+                message: format!("Access denied: {} is not in allowed directories", path.display()),
+                data: None,
+            });
+        }
+
+        debug!("Editing file: {}", path.display());
+
+        // Read current content
+        let content = fs::read_to_string(&path)?;
+
+        // Perform replacement
+        let new_content = content.replace(&old_text, &new_text);
+        let changes_made = content.matches(&old_text).count();
+
+        if changes_made == 0 {
+            return Ok(EditFileResult {
+                success: false,
+                changes_made: 0,
+                diff: None,
+                error: Some("Pattern not found in file".to_string()),
+            });
+        }
+
+        // Generate simple diff
+        let diff = format!(
+            "--- Original\n+++ Modified\n@@ Changes: {} occurrences replaced @@\n- {}\n+ {}",
+            changes_made,
+            old_text.lines().take(3).collect::<Vec<_>>().join("\n- "),
+            new_text.lines().take(3).collect::<Vec<_>>().join("\n+ ")
+        );
+
+        // If dry run, don't actually write
+        if dry_run.unwrap_or(false) {
+            return Ok(EditFileResult {
+                success: true,
+                changes_made,
+                diff: Some(diff),
+                error: None,
+            });
+        }
+
+        // Write the new content
+        fs::write(&path, new_content)?;
+
+        Ok(EditFileResult {
+            success: true,
+            changes_made,
+            diff: Some(diff),
+            error: None,
+        })
+    }
+
+    /// List allowed directories
+    pub async fn list_allowed_directories(&self) -> MCPResult<Vec<String>> {
+        let config = self.config.read().await;
+        Ok(config.allowed_directories.clone())
+    }
+
     /// Get list of available tools
     pub fn get_tools() -> Vec<ToolDefinition> {
         vec![
@@ -462,6 +663,78 @@ impl NativeMCPServer {
                     "required": ["path"]
                 }),
             },
+            ToolDefinition {
+                name: "directory_tree".to_string(),
+                description: "Get a recursive JSON tree structure of a directory and its contents. Returns a hierarchical tree with file names, paths, sizes, and nested children. Useful for understanding project structure and exploring codebases.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the directory"
+                        },
+                        "max_depth": {
+                            "type": "integer",
+                            "description": "Maximum depth to traverse (default: 5)",
+                            "minimum": 1,
+                            "maximum": 10
+                        }
+                    },
+                    "required": ["path"]
+                }),
+            },
+            ToolDefinition {
+                name: "read_multiple_files".to_string(),
+                description: "Read multiple files simultaneously. Returns an array of results with content or error for each file. Gracefully handles errors for individual files without failing the entire operation.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "paths": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "Array of absolute file paths to read"
+                        }
+                    },
+                    "required": ["paths"]
+                }),
+            },
+            ToolDefinition {
+                name: "edit_file".to_string(),
+                description: "Edit a file by replacing exact text matches. Supports dry-run mode to preview changes with diff output before applying. More precise than overwriting the entire file.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the file to edit"
+                        },
+                        "old_text": {
+                            "type": "string",
+                            "description": "Text to find and replace"
+                        },
+                        "new_text": {
+                            "type": "string",
+                            "description": "Text to replace with"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show diff without making changes (default: false)"
+                        }
+                    },
+                    "required": ["path", "old_text", "new_text"]
+                }),
+            },
+            ToolDefinition {
+                name: "list_allowed_directories".to_string(),
+                description: "List all directories that this MCP server is allowed to access. Useful for understanding the scope of file system access.".to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }),
+            },
         ]
     }
 }
@@ -492,6 +765,33 @@ pub struct DirectorySizeInfo {
     pub file_count: usize,
     pub dir_count: usize,
     pub human_readable: String,
+}
+
+/// Directory tree node
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DirectoryTreeNode {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: Option<u64>,
+    pub children: Option<Vec<DirectoryTreeNode>>,
+}
+
+/// Multiple file read result
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MultiFileResult {
+    pub path: String,
+    pub content: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Edit file operation
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EditFileResult {
+    pub success: bool,
+    pub changes_made: usize,
+    pub diff: Option<String>,
+    pub error: Option<String>,
 }
 
 /// Format bytes into human-readable string

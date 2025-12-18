@@ -5,7 +5,10 @@
  * This replaces the subprocess-based implementation with direct in-process calls.
  */
 
-use crate::mcp::{MCPConfig, MCPError, NativeMCPServer, ServerInfo, FileInfo, DirectorySizeInfo, ToolDefinition};
+use crate::mcp::{
+    MCPConfig, MCPError, NativeMCPServer, ServerInfo, FileInfo, DirectorySizeInfo,
+    DirectoryTreeNode, MultiFileResult, EditFileResult, ToolDefinition
+};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -140,14 +143,15 @@ pub async fn get_mcp_tools(state: State<'_, NativeMCPState>) -> Result<Vec<MCPTo
         .into_iter()
         .map(|tool| {
             let annotations = match tool.name.as_str() {
-                "read_file" | "list_directory" | "get_file_info" | "search_files" | "get_directory_size" => {
+                "read_file" | "list_directory" | "get_file_info" | "search_files" |
+                "get_directory_size" | "directory_tree" | "read_multiple_files" | "list_allowed_directories" => {
                     Some(ToolAnnotations {
                         read_only_hint: Some(true),
                         idempotent_hint: Some(true),
                         destructive_hint: Some(false),
                     })
                 }
-                "write_file" | "move_file" | "create_directory" => Some(ToolAnnotations {
+                "write_file" | "move_file" | "create_directory" | "edit_file" => Some(ToolAnnotations {
                     read_only_hint: Some(false),
                     idempotent_hint: Some(false),
                     destructive_hint: Some(true),
@@ -340,6 +344,94 @@ pub async fn execute_mcp_tool(
                             serde_json::to_string_pretty(&size_info).map_err(|e| MCPError {
                                 code: -32700,
                                 message: format!("Failed to serialize directory size info: {}", e),
+                                data: None,
+                            })
+                        })
+                }
+                "directory_tree" => {
+                    let path = request
+                        .arguments
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .ok_or("Missing 'path' argument")?;
+                    let max_depth = request
+                        .arguments
+                        .get("max_depth")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| v as usize);
+
+                    server
+                        .directory_tree(path.to_string(), max_depth)
+                        .await
+                        .and_then(|tree| {
+                            serde_json::to_string_pretty(&tree).map_err(|e| MCPError {
+                                code: -32700,
+                                message: format!("Failed to serialize directory tree: {}", e),
+                                data: None,
+                            })
+                        })
+                }
+                "read_multiple_files" => {
+                    let paths = request
+                        .arguments
+                        .get("paths")
+                        .and_then(|v| v.as_array())
+                        .ok_or("Missing 'paths' argument")?
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<String>>();
+
+                    server
+                        .read_multiple_files(paths)
+                        .await
+                        .and_then(|results| {
+                            serde_json::to_string_pretty(&results).map_err(|e| MCPError {
+                                code: -32700,
+                                message: format!("Failed to serialize file results: {}", e),
+                                data: None,
+                            })
+                        })
+                }
+                "edit_file" => {
+                    let path = request
+                        .arguments
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .ok_or("Missing 'path' argument")?;
+                    let old_text = request
+                        .arguments
+                        .get("old_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or("Missing 'old_text' argument")?;
+                    let new_text = request
+                        .arguments
+                        .get("new_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or("Missing 'new_text' argument")?;
+                    let dry_run = request
+                        .arguments
+                        .get("dry_run")
+                        .and_then(|v| v.as_bool());
+
+                    server
+                        .edit_file(path.to_string(), old_text.to_string(), new_text.to_string(), dry_run)
+                        .await
+                        .and_then(|result| {
+                            serde_json::to_string_pretty(&result).map_err(|e| MCPError {
+                                code: -32700,
+                                message: format!("Failed to serialize edit result: {}", e),
+                                data: None,
+                            })
+                        })
+                }
+                "list_allowed_directories" => {
+                    server
+                        .list_allowed_directories()
+                        .await
+                        .and_then(|dirs| {
+                            serde_json::to_string_pretty(&dirs).map_err(|e| MCPError {
+                                code: -32700,
+                                message: format!("Failed to serialize directories: {}", e),
                                 data: None,
                             })
                         })
